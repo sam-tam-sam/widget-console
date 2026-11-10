@@ -11,6 +11,7 @@ import {
   listTemplates,
   updateInstance,
   updateLink,
+  updateWidgetOrigins,
   WidgetError,
 } from "@/lib/widgets";
 import type { WidgetConfiguration } from "@/widgets/contracts";
@@ -27,10 +28,6 @@ type Change = {
 function field(data: FormData, name: string) {
   const value = data.get(name);
   return typeof value === "string" ? value : "";
-}
-
-function origins(data: FormData) {
-  return field(data, "origins").split(/\r?\n/).map((origin) => origin.trim()).filter(Boolean);
 }
 
 function advancedConfiguration(text: string): WidgetConfiguration {
@@ -132,19 +129,19 @@ export async function updateInstanceAction(_state: FormResult, data: FormData) {
 
 export async function createLinkAction(_state: FormResult, data: FormData) {
   return submit(() => {
-    const link = createLink({ instanceId: field(data, "instanceId"), origins: origins(data) });
+    const link = createLink({ instanceId: field(data, "instanceId") });
     return { instanceId: link.instanceId, message: "Embed link created." };
   });
 }
 
-export async function updateOriginsAction(_state: FormResult, data: FormData) {
+export async function updateWidgetOriginsAction(_state: FormResult, data: FormData) {
   return submit(() => {
-    const link = updateLink({
-      id: field(data, "id"),
-      instanceId: field(data, "instanceId"),
-      origins: origins(data),
-    });
-    return { instanceId: link.instanceId, message: "Approved origins saved." };
+    const instanceId = field(data, "id");
+    const value = data.get("origins");
+    if (typeof value !== "string") throw new WidgetError("Enter valid approved origins.");
+    const origins = value.split(/\r?\n/).map((origin) => origin.trim()).filter(Boolean);
+    updateWidgetOrigins(instanceId, origins);
+    return { instanceId, message: "Approved origins saved." };
   });
 }
 

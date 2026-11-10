@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { configuredOrigin } from "@/lib/embeds";
+import { applicationOrigin } from "@/lib/embeds";
 
 const loopback = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i;
 const embedPath = /^\/embed\/[a-z0-9-]+$/i;
@@ -14,14 +14,9 @@ function notFound() {
 export function proxy(request: NextRequest) {
   const host = request.headers.get("host")?.toLowerCase() ?? "";
   const path = request.nextUrl.pathname;
-  const isEmbed = embedPath.test(path);
-  const adminOrigin = configuredOrigin(process.env.WIDGET_ADMIN_ORIGIN);
-  const widgetOrigin = configuredOrigin(process.env.WIDGET_EMBED_ORIGIN);
-
   if (path === "/api/health") return loopback.test(host) ? NextResponse.next() : notFound();
-  if (!adminOrigin || !widgetOrigin || adminOrigin.hostname === widgetOrigin.hostname) return notFound();
-  if (host === widgetOrigin.host) return isEmbed ? NextResponse.next() : notFound();
-  if (host !== adminOrigin.host || isEmbed) return notFound();
+  if (host !== applicationOrigin()?.host) return notFound();
+  if (embedPath.test(path)) return NextResponse.next();
 
   const response = NextResponse.next();
   response.headers.set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");

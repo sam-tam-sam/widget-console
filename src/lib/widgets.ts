@@ -20,21 +20,20 @@ type InstanceRow = {
   template_key: string;
   name: string;
   config_json: string;
+  approved_origins_json: string | null;
 };
 
 type LinkRow = {
   id: string;
   instance_id: string;
-  origins_json: string;
   enabled: number;
 };
 
-type EmbedRow = InstanceRow & Pick<LinkRow, "origins_json">;
+type EmbedRow = InstanceRow & { origins_json: string };
 
 export type WidgetLink = {
   id: string;
   instanceId: string;
-  origins: string[];
   enabled: boolean;
 };
 
@@ -44,24 +43,35 @@ const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-
 function storage(): DatabaseSync {
   const db = getDb();
   if (!prepared.has(db)) {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS widget_instances (
-        id TEXT PRIMARY KEY,
-        template_key TEXT NOT NULL,
-        name TEXT NOT NULL,
-        config_json TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-      ) STRICT;
-      CREATE TABLE IF NOT EXISTS widget_embed_links (
-        id TEXT PRIMARY KEY,
-        instance_id TEXT NOT NULL REFERENCES widget_instances(id),
-        origins_json TEXT NOT NULL,
-        enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
-        created_at INTEGER NOT NULL
-      ) STRICT;
-      CREATE INDEX IF NOT EXISTS widget_embed_links_instance_id
-        ON widget_embed_links(instance_id);
-    `);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS widget_instances (
+          id TEXT PRIMARY KEY,
+          template_key TEXT NOT NULL,
+          name TEXT NOT NULL,
+          config_json TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          approved_origins_json TEXT
+        ) STRICT;
+        CREATE TABLE IF NOT EXISTS widget_embed_links (
+          id TEXT PRIMARY KEY,
+          instance_id TEXT NOT NULL REFERENCES widget_instances(id),
+          origins_json TEXT NOT NULL,
+          enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+          created_at INTEGER NOT NULL
+        ) STRICT;
+        CREATE INDEX IF NOT EXISTS widget_embed_links_instance_id
+          ON widget_embed_links(instance_id);
+      `);
+      const column = db.prepare("SELECT 1 FROM pragma_table_info('widget_instances') WHERE name = ?")
+        .get("approved_origins_json");
+      if (!column) db.exec("ALTER TABLE widget_instances ADD COLUMN approved_origins_json TEXT");
+      db.exec("COMMIT");
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
     prepared.add(db);
   }
   return db;
@@ -73,6 +83,7 @@ function instanceFromRow(row: InstanceRow): WidgetInstance {
     templateKey: row.template_key,
     name: row.name,
     configuration: JSON.parse(row.config_json) as WidgetConfiguration,
+    approvedOrigins: row.approved_origins_json === null ? null : JSON.parse(row.approved_origins_json) as string[],
   };
 }
 
@@ -80,7 +91,6 @@ function linkFromRow(row: LinkRow): WidgetLink {
   return {
     id: row.id,
     instanceId: row.instance_id,
-    origins: JSON.parse(row.origins_json) as string[],
     enabled: row.enabled === 1,
   };
 }
@@ -101,7 +111,7 @@ function cleanName(input: string): string {
 
 function findInstance(db: DatabaseSync, id: string): InstanceRow | undefined {
   return db.prepare(
-    "SELECT id, template_key, name, config_json FROM widget_instances WHERE id = ?",
+    "SELECT id, template_key, name, config_json, approved_origins_json FROM widget_instances WHERE id = ?",
   ).get(id) as InstanceRow | undefined;
 }
 
@@ -129,7 +139,7 @@ function parseInstanceConfiguration(template: WidgetTemplate, input: unknown): W
 
 export function listInstances(): WidgetInstance[] {
   const rows = storage().prepare(`
-    SELECT id, template_key, name, config_json
+    SELECT id, template_key, name, config_json, approved_origins_json
     FROM widget_instances ORDER BY created_at DESC, id DESC
   `).all() as InstanceRow[];
   return rows.map(instanceFromRow);
@@ -144,10 +154,10 @@ export function getInstance(id: string): WidgetInstance | null {
 export function listLinks(instanceId?: string): WidgetLink[] {
   const db = storage();
   const rows = (instanceId === undefined ? db.prepare(`
-    SELECT id, instance_id, origins_json, enabled
+    SELECT id, instance_id, enabled
     FROM widget_embed_links ORDER BY created_at DESC, id DESC
   `).all() : db.prepare(`
-    SELECT id, instance_id, origins_json, enabled
+    SELECT id, instance_id, enabled
     FROM widget_embed_links WHERE instance_id = ? ORDER BY created_at DESC, id DESC
   `).all(instanceId)) as LinkRow[];
   return rows.map(linkFromRow);
@@ -164,11 +174,11 @@ export function createInstance(input: {
   const id = randomUUID();
 
   storage().prepare(`
-    INSERT INTO widget_instances (id, template_key, name, config_json, created_at)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT INTO widget_instances (id, template_key, name, config_json, created_at, approved_origins_json)
+    VALUES (?, ?, ?, ?, ?, '[]')
   `).run(id, template.key, name, JSON.stringify(configuration), Date.now());
 
-  return { id, templateKey: template.key, name, configuration };
+  return { id, templateKey: template.key, name, configuration, approvedOrigins: [] };
 }
 
 export function updateInstance(input: {
@@ -184,10 +194,26 @@ export function updateInstance(input: {
     : JSON.stringify(parseInstanceConfiguration(requireTemplate(current.template_key), input.configuration));
   const updated = db.prepare(`
     UPDATE widget_instances SET name = ?, config_json = COALESCE(?, config_json)
-    WHERE id = ? RETURNING id, template_key, name, config_json
+    WHERE id = ? RETURNING id, template_key, name, config_json, approved_origins_json
   `).get(name, configuration, input.id) as InstanceRow | undefined;
   if (!updated) throw new WidgetError("This widget instance is unavailable.");
   return instanceFromRow(updated);
+}
+
+export function updateWidgetOrigins(id: string, origins: readonly string[]): void {
+  const approved = JSON.stringify(normalizeOrigins(origins));
+  const db = storage();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = db.prepare("UPDATE widget_instances SET approved_origins_json = ? WHERE id = ?").run(approved, id);
+    if (result.changes !== 1) throw new WidgetError("This widget instance is unavailable.");
+    // Keep the legacy column in sync so a rollback still honors this policy.
+    db.prepare("UPDATE widget_embed_links SET origins_json = ? WHERE instance_id = ?").run(approved, id);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function deleteInstance(id: string): void {
@@ -204,40 +230,32 @@ export function deleteInstance(id: string): void {
   }
 }
 
-export function createLink(input: { instanceId: string; origins: readonly string[] }): WidgetLink {
-  const origins = normalizeOrigins(input.origins);
+export function createLink(input: { instanceId: string }): WidgetLink {
   const db = storage();
   const instance = readInstance(db, input.instanceId);
   requireTemplate(instance.template_key);
   const id = randomUUID();
 
-  db.prepare(`
+  const result = db.prepare(`
     INSERT INTO widget_embed_links (id, instance_id, origins_json, created_at)
-    VALUES (?, ?, ?, ?)
-  `).run(id, instance.id, JSON.stringify(origins), Date.now());
+    SELECT ?, id, COALESCE(approved_origins_json, '[]'), ? FROM widget_instances WHERE id = ?
+  `).run(id, Date.now(), instance.id);
+  if (result.changes !== 1) throw new WidgetError("This widget instance is unavailable.");
 
-  return { id, instanceId: instance.id, origins, enabled: true };
+  return { id, instanceId: instance.id, enabled: true };
 }
 
 export function updateLink(input: {
   id: string;
   instanceId?: string;
-  origins?: readonly string[];
-  enabled?: boolean;
+  enabled: boolean;
 }): WidgetLink {
-  if (input.origins === undefined && input.enabled === undefined) {
-    throw new WidgetError("Choose what to update.");
-  }
-
-  const origins = input.origins === undefined ? null : JSON.stringify(normalizeOrigins(input.origins));
-  const enabled = input.enabled === undefined ? null : Number(input.enabled);
   const instanceId = input.instanceId ?? null;
   const updated = storage().prepare(`
-    UPDATE widget_embed_links
-    SET origins_json = COALESCE(?, origins_json), enabled = COALESCE(?, enabled)
+    UPDATE widget_embed_links SET enabled = ?
     WHERE id = ? AND (? IS NULL OR instance_id = ?)
-    RETURNING id, instance_id, origins_json, enabled
-  `).get(origins, enabled, input.id, instanceId, instanceId) as LinkRow | undefined;
+    RETURNING id, instance_id, enabled
+  `).get(Number(input.enabled), input.id, instanceId, instanceId) as LinkRow | undefined;
 
   if (!updated) throw new WidgetError("This embed link is unavailable.");
   return linkFromRow(updated);
@@ -272,7 +290,7 @@ export function resolveEmbed(id: string) {
   if (!uuidPattern.test(id)) return null;
 
   const row = storage().prepare(`
-    SELECT i.id, i.template_key, i.name, i.config_json, l.origins_json
+    SELECT i.id, i.template_key, i.name, i.config_json, i.approved_origins_json, l.origins_json
     FROM widget_embed_links l
     JOIN widget_instances i ON l.instance_id = i.id
     WHERE l.id = ? AND l.enabled = 1
@@ -281,7 +299,7 @@ export function resolveEmbed(id: string) {
   if (!row) return null;
 
   try {
-    const origins = normalizeOrigins(JSON.parse(row.origins_json));
+    const origins = normalizeOrigins(JSON.parse(row.approved_origins_json ?? row.origins_json));
     const preview = renderSavedInstance(row);
     return preview ? { origins, html: preview.html, scriptHashes: preview.scriptHashes } : null;
   } catch (error) {

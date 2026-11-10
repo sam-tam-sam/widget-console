@@ -21,29 +21,31 @@ Enter the deployment values in Dockhand's **Environment variables** panel. Compo
 | --- | --- |
 | `WIDGET_ADMIN_USERNAME` | Choose the sign-in username. Use 3–64 letters, digits, periods, underscores or hyphens, starting with a letter or digit. |
 | `WIDGET_ADMIN_PASSWORD` | Choose a strong password with at least 15 characters. Common passwords are rejected. |
-| `WIDGET_ADMIN_ORIGIN` | Dashboard origin, for example `https://console.example.com` |
-| `WIDGET_EMBED_ORIGIN` | Separate public iframe origin, for example `https://widgets.example.com` |
+| `WIDGET_PUBLIC_ORIGIN` | The HTTPS address for both the dashboard and embeds, for example `https://tools.example.com` |
 | `WIDGET_HOST_PORT` | Port on the Docker host. Defaults to `3100`. |
 | `WIDGET_BIND_IP` | Address on the Docker host. Defaults to `127.0.0.1`. |
 | `WIDGET_VOLUME_NAME` | Named Docker volume for SQLite. Defaults to `widget-console-data`. |
 | `WIDGET_NETWORK_NAME` | Docker network shared with the connector if needed. Defaults to `widget-console`. |
 | `WIDGET_TRUST_CLOUDFLARE` | Defaults to `0`. Set `1` for per-IP sign-in throttling only when all traffic reaching the app comes through a trusted Cloudflare connector. |
 
-For the two origins, enter the scheme and hostname without a path. Deploy the stack and wait for the `app` container to become healthy. Compose keeps SQLite in a named volume. Use the same volume on redeploy to retain widget settings and embed links. To rotate the administrator username or password, change the value in Dockhand and redeploy. Existing sessions are revoked when the new credentials take effect.
+Enter the scheme and hostname without a path. Deploy the stack and wait for the `app` container to become healthy. Compose keeps SQLite in a named volume. Use the same volume on redeploy to retain widget settings and link IDs. To rotate the administrator username or password, change the value in Dockhand and redeploy. Existing sessions are revoked when the new credentials take effect.
+
+For an existing deployment, set `WIDGET_PUBLIC_ORIGIN` to the address you want to keep. Compose can reuse the old `WIDGET_ADMIN_ORIGIN` during the upgrade. Copy fresh iframe markup for any pages that use the old embed hostname. Existing link approvals apply until you save a list in the widget's Settings.
 
 ### Connect Cloudflare Tunnel
 
-Create two published application routes on the same tunnel. Use the hostnames from `WIDGET_ADMIN_ORIGIN` and `WIDGET_EMBED_ORIGIN`. When `cloudflared` runs on the Docker host, point both routes to `http://127.0.0.1:3100`, substituting your `WIDGET_HOST_PORT` if changed. Leave **HTTP Host Header** unset to preserve each public hostname. The dashboard and iframe routes depend on the original host. [Cloudflare Tunnel routing](https://developers.cloudflare.com/tunnel/concepts/routing/) · [Origin parameters](https://developers.cloudflare.com/tunnel/reference/origin-parameters/)
+Create one published application route for the hostname in `WIDGET_PUBLIC_ORIGIN`. When `cloudflared` runs on the Docker host, point it to `http://127.0.0.1:3100`, substituting your `WIDGET_HOST_PORT` if changed. Leave **HTTP Host Header** unset to preserve the public hostname. [Cloudflare Tunnel routing](https://developers.cloudflare.com/tunnel/concepts/routing/) · [Origin parameters](https://developers.cloudflare.com/tunnel/reference/origin-parameters/)
 
-If `cloudflared` runs in another Docker container on the same host, deploy Widget Console first and attach the connector to `widget-console` as an external network in the connector's Compose stack. Use the value of `WIDGET_NETWORK_NAME` if you changed it. Point both routes to `http://widget-console:3000`. A separate Cloudflare Access policy can protect the dashboard hostname. Keep the iframe hostname available to visitors on approved websites. [Compose networking](https://docs.docker.com/compose/how-tos/networking/)
+If `cloudflared` runs in another Docker container on the same host, attach the connector to `widget-console` as an external network in the connector's Compose stack. Use the value of `WIDGET_NETWORK_NAME` if you changed it. Point the route to `http://widget-console:3000`. [Compose networking](https://docs.docker.com/compose/how-tos/networking/)
 
-Open `/sign-in` on the dashboard hostname and sign in with the credentials from Dockhand.
+Open `/sign-in` on the public hostname and sign in with the credentials from Dockhand.
 
 ## Manage widgets
 
 1. Choose **New widget**, select a registered template, and save. The new widget opens on its own settings page.
-2. Open **Preview** to see the widget with its saved settings.
-3. Under **Embed links**, enter the exact HTTPS origin of the website that will display the widget. Save the link and copy its iframe markup to that site. Verify the iframe loads from the approved site.
+2. Open **Preview** to try the widget with its saved settings. The admin preview works with an empty list of approved origins.
+3. In the widget's **Settings → Approved origins**, enter each website's exact HTTPS origin on its own line and save. This list controls all links for that widget. An empty saved list blocks public embedding.
+4. Open **Embed links**, create a link, and copy its iframe markup to an approved website. Verify the iframe loads from that site.
 
 Use the widget's settings page to delete it. Confirming deletion removes that widget and its embed links.
 

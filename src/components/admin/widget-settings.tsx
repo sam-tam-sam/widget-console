@@ -1,4 +1,4 @@
-import { updateInstanceAction } from "@/app/(admin)/admin/actions";
+import { updateInstanceAction, updateWidgetOriginsAction } from "@/app/(admin)/admin/actions";
 import { AdminForm } from "@/components/admin/form";
 import { DeleteWidget } from "@/components/admin/delete-widget";
 import { WidgetAppearanceFields } from "@/components/admin/widget-appearance-fields";
@@ -51,6 +51,7 @@ export function WidgetSettings({
   }
   const appearance = template?.appearance;
   const colors = appearance ? resolveWidgetAppearance(appearance, widget.configuration) : null;
+  const approvedOrigins = widget.approvedOrigins?.join("\n") ?? "";
 
   return (
     <div className="console-editor console-stack">
@@ -100,6 +101,34 @@ export function WidgetSettings({
               initial={colors}
             />
           )}
+        </AdminForm>
+      </section>
+      <section id="widget-approved-origins" className="console-panel console-form-panel" aria-labelledby="widget-approved-origins-heading">
+        <div className="console-section-heading">
+          <h2 id="widget-approved-origins-heading">Approved origins</h2>
+          <p>The saved list applies to every embed link for this widget.</p>
+          {widget.approvedOrigins === null && linkCount > 0 && (
+            <p>Existing links use their previous site lists until you save this list.</p>
+          )}
+        </div>
+        <AdminForm action={updateWidgetOriginsAction} label="Save approved origins" className="console-form">
+          <input type="hidden" name="id" value={widget.id} />
+          <div className="console-field">
+            <Label htmlFor="widget-approved-origins-list">Approved origins</Label>
+            <textarea
+              key={approvedOrigins}
+              id="widget-approved-origins-list"
+              name="origins"
+              className="console-code-field"
+              defaultValue={approvedOrigins}
+              rows={4}
+              maxLength={8192}
+              spellCheck={false}
+              placeholder="https://example.com"
+              aria-describedby="widget-approved-origins-help"
+            />
+            <small id="widget-approved-origins-help">Enter one HTTPS origin per line, including its port if present. An empty list blocks embedding. You can still preview the widget in the dashboard.</small>
+          </div>
         </AdminForm>
       </section>
       <section className="console-panel console-form-panel console-danger" aria-labelledby="delete-widget-heading">

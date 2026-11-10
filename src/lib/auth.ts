@@ -6,7 +6,7 @@ import { argon2id, hash, verify } from "argon2";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { configuredOrigin } from "@/lib/embeds";
+import { applicationOrigin } from "@/lib/embeds";
 import passwordDenylist from "@/lib/auth-password-denylist.json";
 
 const SESSION_COOKIE = "widget_admin_session";
@@ -88,19 +88,15 @@ function tokenHash(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function adminOrigin() {
-  return configuredOrigin(process.env.WIDGET_ADMIN_ORIGIN);
-}
-
 function isAdminHost(request: Headers) {
   const host = request.get("host") ?? "";
-  const origin = adminOrigin();
+  const origin = applicationOrigin();
   return origin !== null && host.toLowerCase() === origin.host;
 }
 
 export async function isAdminMutation() {
   const request = await headers();
-  return isAdminHost(request) && request.get("origin") === adminOrigin()?.origin;
+  return isAdminHost(request) && request.get("origin") === applicationOrigin()?.origin;
 }
 
 export async function getSignInAvailability() {
@@ -136,9 +132,7 @@ async function matchesConfiguredCredentials(admin: AdminRow, username: string, p
 async function synchronizeConfiguredAdmin(): Promise<AdminRow | null> {
   const username = parseUsername(process.env.WIDGET_ADMIN_USERNAME);
   const password = validateNewPassword(process.env.WIDGET_ADMIN_PASSWORD);
-  const origin = adminOrigin();
-  const embedOrigin = configuredOrigin(process.env.WIDGET_EMBED_ORIGIN);
-  if (!origin || !embedOrigin || origin.hostname === embedOrigin.hostname || !username || !password) return null;
+  if (!applicationOrigin() || !username || !password) return null;
 
   const current = getAdmin();
   if (current && await matchesConfiguredCredentials(current, username, password)) return current;

@@ -1,23 +1,11 @@
 import { CodeXml, Link2, Plus } from "lucide-react";
-import { createLinkAction, toggleLinkAction, updateOriginsAction } from "@/app/(admin)/admin/actions";
+import Link from "next/link";
+import { createLinkAction, toggleLinkAction } from "@/app/(admin)/admin/actions";
 import { EmbedCode } from "@/components/admin/embed-code";
 import { AdminForm } from "@/components/admin/form";
-import { Label } from "@/components/ui/label";
-import { configuredOrigin } from "@/lib/embeds";
+import { applicationOrigin } from "@/lib/embeds";
 import type { WidgetLink } from "@/lib/widgets";
 import type { WidgetInstance } from "@/widgets/contracts";
-
-function OriginsField({ id, defaultValue }: { id: string; defaultValue?: string }) {
-  return (
-    <div className="console-field">
-      <Label htmlFor={id}>Approved origins</Label>
-      <textarea key={defaultValue} id={id} name="origins" className="console-code-field"
-        defaultValue={defaultValue} rows={3} maxLength={8192} required spellCheck={false}
-        placeholder="https://example.com" aria-describedby={`${id}-help`} />
-      <small id={`${id}-help`}>Enter one HTTPS origin per line, including its port if present.</small>
-    </div>
-  );
-}
 
 function escapeAttribute(text: string) {
   return text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -34,8 +22,8 @@ function LinkCard({ link, origin, embedTitle, height }: { link: WidgetLink; orig
       <div className="console-link-heading">
         <span className="console-instance-icon"><Link2 size={17} aria-hidden="true" /></span>
         <div className="console-record-name">
-          <h3>{link.origins[0] ?? "Embed link"}</h3>
-          <small>{link.origins.length} approved {link.origins.length === 1 ? "origin" : "origins"}</small>
+          <h3>Embed link</h3>
+          <small>{link.id.slice(0, 8)}</small>
         </div>
         <span className="console-badge" aria-live="polite" data-enabled={link.enabled}>
           <span aria-hidden="true" />{link.enabled ? "Enabled" : "Disabled"}
@@ -44,15 +32,10 @@ function LinkCard({ link, origin, embedTitle, height }: { link: WidgetLink; orig
       {origin ? (
         <EmbedCode markup={makeEmbedMarkup(origin, link.id, embedTitle, height)} />
       ) : (
-        <p className="console-empty-note">Configure the public embed origin to generate iframe code.</p>
+        <p className="console-empty-note">Configure the application origin to generate iframe code.</p>
       )}
       <details className="console-disclosure console-link-controls">
         <summary>Manage link</summary>
-        <AdminForm action={updateOriginsAction} label="Save changes" variant="outline" className="console-form">
-          <input type="hidden" name="id" value={link.id} />
-          <input type="hidden" name="instanceId" value={link.instanceId} />
-          <OriginsField id={`link-origins-${link.id}`} defaultValue={link.origins.join("\n")} />
-        </AdminForm>
         {link.enabled ? (
           <details className="console-disclosure console-disable">
             <summary>Disable link</summary>
@@ -81,7 +64,8 @@ export function WidgetLinks({ widget, links, embedTitle = widget.name, height = 
   embedTitle?: string;
   height?: number;
 }) {
-  const origin = configuredOrigin(process.env.WIDGET_EMBED_ORIGIN)?.origin ?? null;
+  const origin = applicationOrigin()?.origin ?? null;
+  const settings = `/admin/widgets/${encodeURIComponent(widget.id)}#widget-approved-origins`;
 
   return (
     <div className="console-editor console-stack">
@@ -92,7 +76,7 @@ export function WidgetLinks({ widget, links, embedTitle = widget.name, height = 
         </div>
         <AdminForm action={createLinkAction} label="Create embed link" className="console-form">
           <input type="hidden" name="instanceId" value={widget.id} />
-          <OriginsField id="new-link-origins" />
+          <p className="console-empty-note">Choose which sites can display this widget in <Link href={settings} className="underline">Approved origins</Link>.</p>
         </AdminForm>
       </section>
 
@@ -104,7 +88,7 @@ export function WidgetLinks({ widget, links, embedTitle = widget.name, height = 
         {links.length === 0 ? (
           <div className="console-empty">
             <CodeXml size={21} aria-hidden="true" />
-            <div><h3>No embed links yet</h3><p>Create a link and choose which sites can display this widget.</p></div>
+            <div><h3>No embed links yet</h3><p>Create a link to get the iframe code for this widget.</p></div>
           </div>
         ) : (
           <ul className="console-records">

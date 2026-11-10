@@ -28,7 +28,8 @@ function normalizeOrigin(input: string): string {
   return url.origin;
 }
 
-export function configuredOrigin(value: string | undefined): URL | null {
+export function applicationOrigin(): URL | null {
+  const value = process.env.WIDGET_PUBLIC_ORIGIN;
   if (!value) return null;
   try {
     return new URL(normalizeOrigin(value));
@@ -38,13 +39,13 @@ export function configuredOrigin(value: string | undefined): URL | null {
 }
 
 export function normalizeOrigins(input: readonly string[]): string[] {
-  if (!Array.isArray(input) || input.length === 0) {
-    throw new WidgetError("Add at least one approved origin.");
+  if (!Array.isArray(input)) {
+    throw new WidgetError("Enter valid origins.");
   }
 
   const origins = [...new Set(input.map(normalizeOrigin))];
   if (origins.join(" ").length > 3_072) {
-    throw new WidgetError("The approved origins are too long for a single embed link.");
+    throw new WidgetError("The approved origins list is too long.");
   }
 
   return origins;
@@ -55,11 +56,12 @@ export function embedSecurityHeaders(origins: readonly string[], scriptHashes: r
     "Cache-Control": "no-store",
     "Content-Security-Policy": [
       "default-src 'none'",
+      "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox",
       `script-src ${scriptHashes.length ? scriptHashes.join(" ") : "'none'"}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
       "font-src 'self'",
-      "connect-src 'self'",
+      "connect-src 'none'",
       "base-uri 'none'",
       "form-action 'none'",
       `frame-ancestors ${origins.length > 0 ? origins.join(" ") : "'none'"}`,

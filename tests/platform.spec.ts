@@ -1,6 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
-import { adminOrigin, approvedOrigin, backendOrigin, embedOrigin, otherOrigin, startPlatform } from "./platform-server";
+import { DatabaseSync } from "node:sqlite";
+import { adminOrigin, approvedOrigin, backendOrigin, otherOrigin, startPlatform } from "./platform-server";
 
 const iframeNavigation = { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate" };
 
@@ -35,19 +36,40 @@ async function createWidget(page: Page, template: string, name: string) {
   return path;
 }
 
-async function createLink(page: Page, origin: string) {
+async function saveApprovedOrigins(page: Page, ...origins: string[]) {
+  await page.getByRole("textbox", { name: "Approved origins", exact: true }).fill(origins.join("\n"));
+  const save = page.waitForResponse((response) => response.request().method() === "POST" && response.url() === page.url());
+  await page.getByRole("button", { name: "Save approved origins", exact: true }).click();
+  expect((await save).ok()).toBe(true);
+  await expect(page.getByRole("status").filter({ hasText: "Approved origins saved." })).toBeVisible();
+}
+
+async function createLink(page: Page) {
   const existing = await page.locator("[data-link-id]").evaluateAll((items) =>
     items.map((item) => item.getAttribute("data-link-id")),
   );
   const createButton = page.getByRole("button", { name: "Create embed link", exact: true });
-  const form = page.locator("form").filter({ has: createButton });
-  await form.getByLabel("Approved origins", { exact: true }).fill(origin);
   await createButton.click();
   const added = page.locator(`[data-link-id]${existing.map((id) => `:not([data-link-id="${id}"])`).join("")}`);
   await expect(added).toHaveCount(1);
   const id = await added.getAttribute("data-link-id");
   if (!id) throw new Error("The new embed link has no ID.");
   return { id, row: page.locator(`[data-link-id="${id}"]`) };
+}
+
+async function embedPolicy(context: BrowserContext, id: string) {
+  const response = await requestAt(context, `${adminOrigin}/embed/${id}`, iframeNavigation);
+  expect(response.status()).toBe(200);
+  return response.headers()["content-security-policy"];
+}
+
+async function expectFrameBlocked(host: Page, origin: string, linkId: string) {
+  const violation = host.waitForEvent("console", {
+    predicate: (entry) => entry.text().includes("frame-ancestors"),
+    timeout: 5000,
+  });
+  await host.goto(`${origin}/${linkId}`);
+  await violation;
 }
 
 test("runtime credentials, widget settings, and production embed management", async ({ page, browser }, testInfo) => {
@@ -57,8 +79,12 @@ test("runtime credentials, widget settings, and production embed management", as
   const visitor = await browser.newContext({ baseURL: adminOrigin, ignoreHTTPSErrors: true });
   try {
     await test.step("protect the dashboard and sign in with runtime credentials", async () => {
-      expect((await requestAt(visitor, `${embedOrigin}/admin`)).status()).toBe(404);
+      expect((await requestAt(visitor, "https://unexpected.localhost/admin")).status()).toBe(404);
       expect((await visitor.request.get(`${backendOrigin}/admin`)).status()).toBe(404);
+      expect((await requestAt(visitor, `${adminOrigin}/api/health`)).status()).toBe(404);
+      const protectedDashboard = await requestAt(visitor, `${adminOrigin}/admin`);
+      expect(protectedDashboard.headers().location).toMatch(/\/sign-in$/);
+      expect(protectedDashboard.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
       await page.goto("/admin");
       await expect(page).toHaveURL(/\/sign-in$/);
       await signIn(page, "admin", "123456");
@@ -68,7 +94,7 @@ test("runtime credentials, widget settings, and production embed management", as
       expect(await page.context().cookies(adminOrigin)).toContainEqual(expect.objectContaining({
         name: "widget_admin_session", secure: true, httpOnly: true,
       }));
-      expect(await page.context().cookies(embedOrigin)).not.toContainEqual(expect.objectContaining({ name: "widget_admin_session" }));
+      expect(await page.context().cookies(approvedOrigin)).not.toContainEqual(expect.objectContaining({ name: "widget_admin_session" }));
     });
 
     await test.step("revoke prior sessions when runtime credentials change", async () => {
@@ -84,6 +110,33 @@ test("runtime credentials, widget settings, and production embed management", as
       await expect(page).toHaveURL(/\/admin$/);
     });
 
+    await test.step("preserve old link permissions until the widget list is explicitly saved", async () => {
+      const { widgetId, links } = platform.legacy;
+      for (const { id, origin } of links) {
+        expect(await embedPolicy(visitor, id)).toContain(`frame-ancestors ${origin}`);
+      }
+
+      await page.goto(`/admin/widgets/${widgetId}`);
+      await page.getByLabel("Widget name", { exact: true }).fill("Legacy widget renamed");
+      await page.getByRole("button", { name: "Save settings", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: /settings saved/i })).toBeVisible();
+      for (const { id, origin } of links) {
+        expect(await embedPolicy(visitor, id)).toContain(`frame-ancestors ${origin}`);
+      }
+
+      await saveApprovedOrigins(page, otherOrigin);
+      const db = new DatabaseSync(platform.database, { readOnly: true });
+      try {
+        const storedOrigin = db.prepare("SELECT origins_json FROM widget_embed_links WHERE id = ?");
+        for (const { id } of links) {
+          expect(await embedPolicy(visitor, id)).toContain(`frame-ancestors ${otherOrigin}`);
+          expect(storedOrigin.get(id)).toMatchObject({ origins_json: JSON.stringify([otherOrigin]) });
+        }
+      } finally {
+        db.close();
+      }
+    });
+
     await test.step("create, preview, publish, and remove widgets independently", async () => {
       const noticePath = await createWidget(page, "freedom-fee-check", "Site notice");
       await expect(page.frameLocator('iframe[title="Widget preview"]').getByRole("heading", { name: "Fee Check" })).toBeVisible();
@@ -92,9 +145,11 @@ test("runtime credentials, widget settings, and production embed management", as
       await createWidget(page, "processing-fee-calculator", "Site details");
       const detailsPreview = page.frameLocator('iframe[title="Widget preview"]');
       await expect(detailsPreview.getByRole("button", { name: "Calculate savings" })).toBeVisible();
+      await page.getByRole("link", { name: "Settings", exact: true }).click();
+      await saveApprovedOrigins(page, approvedOrigin);
       await page.getByRole("link", { name: "Embed links", exact: true }).click();
       await expect(page).toHaveURL(/\?tab=links$/);
-      const details = await createLink(page, approvedOrigin);
+      const details = await createLink(page);
 
       await page.goto("/admin");
       await expect(page.getByRole("heading", { name: "Widgets", exact: true })).toBeVisible();
@@ -107,9 +162,9 @@ test("runtime credentials, widget settings, and production embed management", as
       await expect(page).toHaveURL(/\?tab=links$/);
       await expect(page.locator("[data-link-id]")).toHaveCount(0);
 
-      const first = await createLink(page, approvedOrigin);
-      const second = await createLink(page, otherOrigin);
-      const embedURL = `${embedOrigin}/embed/${first.id}`;
+      const first = await createLink(page);
+      const second = await createLink(page);
+      const embedURL = `${adminOrigin}/embed/${first.id}`;
       await first.row.getByText("View iframe code", { exact: true }).click();
       await expect(first.row.getByLabel("Embed code")).toHaveValue(new RegExp(embedURL));
       await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
@@ -123,28 +178,40 @@ test("runtime credentials, widget settings, and production embed management", as
       const host = await visitor.newPage();
       const direct = await host.goto(embedURL);
       expect(direct?.status()).toBe(403);
+      const emptyPolicy = await embedPolicy(visitor, first.id);
+      expect(emptyPolicy).toContain("frame-ancestors 'none'");
+      expect(emptyPolicy).toContain("sandbox allow-scripts");
+      expect(emptyPolicy).not.toContain("allow-same-origin");
+      expect(emptyPolicy).toContain("connect-src 'none'");
+      await expectFrameBlocked(host, approvedOrigin, first.id);
+
+      await page.getByRole("link", { name: "Settings", exact: true }).click();
+      await saveApprovedOrigins(page, approvedOrigin);
       await host.goto(`${approvedOrigin}/${first.id}`);
-      await expect(host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" })).toBeVisible();
-      const violation = host.waitForEvent("console", {
-        predicate: (entry) => entry.text().includes("frame-ancestors"),
-        timeout: 5000,
-      });
-      await host.goto(`${otherOrigin}/${first.id}`);
-      await violation;
-      await host.goto(`${otherOrigin}/${second.id}`);
-      await expect(host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" })).toBeVisible();
+      const embeddedWidget = host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" });
+      await expect(embeddedWidget).toBeVisible();
+      expect(await embeddedWidget.evaluate((node) => node.ownerDocument.defaultView?.origin)).toBe("null");
+      await expectFrameBlocked(host, otherOrigin, first.id);
+      await host.goto(`${approvedOrigin}/${second.id}`);
+      await expect(embeddedWidget).toBeVisible();
 
       await host.goto(`${approvedOrigin}/${details.id}`);
       await expect(host.frameLocator("iframe").getByRole("button", { name: "Calculate savings" })).toBeVisible();
 
-      await first.row.getByText("Manage link", { exact: true }).click();
-      await first.row.getByLabel("Approved origins").fill(otherOrigin);
-      await first.row.getByRole("button", { name: "Save changes" }).click();
-      await expect.poll(async () =>
-        (await requestAt(visitor, embedURL, iframeNavigation)).headers()["content-security-policy"],
-      ).toContain(`frame-ancestors ${otherOrigin}`);
+      await saveApprovedOrigins(page, otherOrigin);
+      for (const { id } of [first, second]) {
+        expect(await embedPolicy(visitor, id)).toContain(`frame-ancestors ${otherOrigin}`);
+        await host.goto(`${otherOrigin}/${id}`);
+        await expect(embeddedWidget).toBeVisible();
+      }
+      expect(await embedPolicy(visitor, details.id)).toContain(`frame-ancestors ${approvedOrigin}`);
+      await expectFrameBlocked(host, approvedOrigin, first.id);
+
+      await page.getByRole("link", { name: "Embed links", exact: true }).click();
+      await first.row.getByText("View iframe code", { exact: true }).click();
       await expect(first.row.getByLabel("Embed code")).toHaveValue(new RegExp(embedURL));
 
+      await first.row.getByText("Manage link", { exact: true }).click();
       await first.row.getByText("Disable link", { exact: true }).click();
       await first.row.getByRole("button", { name: "Confirm disable" }).click();
       await expect(first.row.getByText("Disabled", { exact: true })).toBeVisible();
@@ -153,6 +220,8 @@ test("runtime credentials, widget settings, and production embed management", as
       await expect(host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" })).toBeVisible();
 
       await page.getByRole("link", { name: "Settings", exact: true }).click();
+      await saveApprovedOrigins(page);
+      expect(await embedPolicy(visitor, second.id)).toContain("frame-ancestors 'none'");
       const deleteButton = page.getByRole("button", { name: "Delete widget", exact: true });
       await deleteButton.click();
       const confirmation = page.getByRole("dialog", { name: "Delete widget?" });
@@ -171,7 +240,7 @@ test("runtime credentials, widget settings, and production embed management", as
       await expect(page.getByText("Site notice", { exact: true })).toHaveCount(0);
       await expect(page.getByText("Site details", { exact: true })).toBeVisible();
       for (const id of [first.id, second.id]) {
-        expect((await requestAt(visitor, `${embedOrigin}/embed/${id}`, iframeNavigation)).status()).toBe(404);
+        expect((await requestAt(visitor, `${adminOrigin}/embed/${id}`, iframeNavigation)).status()).toBe(404);
       }
       expect((await page.goto(noticePath))?.status()).toBe(404);
       await host.goto(`${approvedOrigin}/${details.id}`);
@@ -212,9 +281,10 @@ test("runtime credentials, widget settings, and production embed management", as
       await page.getByLabel("Conversion button label", { exact: true }).fill("Request my quote");
       await page.getByRole("button", { name: "Save settings", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: /saved/i })).toBeVisible();
+      await saveApprovedOrigins(page, approvedOrigin);
       await page.getByRole("link", { name: "Embed links", exact: true }).click();
       await expect(page).toHaveURL(/\?tab=links$/);
-      const calculatorLink = await createLink(page, approvedOrigin);
+      const calculatorLink = await createLink(page);
 
       const host = await visitor.newPage();
       await host.setViewportSize({ width: 1092, height: 1000 });
@@ -299,10 +369,11 @@ test("runtime credentials, widget settings, and production embed management", as
       await page.getByLabel("Fee review button label", { exact: true }).fill(actionLabel);
       await page.getByRole("button", { name: "Save settings", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: /saved/i })).toBeVisible();
+      await saveApprovedOrigins(page, approvedOrigin);
       await page.getByRole("link", { name: "Embed links", exact: true }).click();
       await expect(page).toHaveURL(/\?tab=links$/);
-      const link = await createLink(page, approvedOrigin);
-      const embedURL = `${embedOrigin}/embed/${link.id}`;
+      const link = await createLink(page);
+      const embedURL = `${adminOrigin}/embed/${link.id}`;
       const embeddedURL = `${approvedOrigin}/${link.id}`;
 
       await page.getByRole("link", { name: "Settings", exact: true }).click();

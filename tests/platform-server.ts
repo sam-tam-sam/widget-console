@@ -4,19 +4,53 @@ import { once } from "node:events";
 import { cpSync, mkdirSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:https";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { setTimeout } from "node:timers/promises";
 
 const backendPort = 39111;
 const gatewayPort = 39112;
 const loopback = "127.0.0.1";
 export const backendOrigin = `http://${loopback}:${backendPort}`;
-export const adminOrigin = `https://admin.localhost:${gatewayPort}`;
-export const embedOrigin = `https://widgets.localhost:${gatewayPort}`;
+export const adminOrigin = `https://console.localhost:${gatewayPort}`;
 export const approvedOrigin = `https://approved.localhost:${gatewayPort}`;
 export const otherOrigin = `https://other.localhost:${gatewayPort}`;
 
 type Credentials = { username: string; password: string };
+
+function seedLegacyWidget(database: string) {
+  const widgetId = randomUUID();
+  const links = [approvedOrigin, otherOrigin].map((origin) => ({ id: randomUUID(), origin }));
+  mkdirSync(dirname(database), { recursive: true });
+  const db = new DatabaseSync(database);
+  try {
+    db.exec(`
+      CREATE TABLE widget_instances (
+        id TEXT PRIMARY KEY,
+        template_key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        config_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      ) STRICT;
+      CREATE TABLE widget_embed_links (
+        id TEXT PRIMARY KEY,
+        instance_id TEXT NOT NULL REFERENCES widget_instances(id),
+        origins_json TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+        created_at INTEGER NOT NULL
+      ) STRICT;
+    `);
+    db.prepare("INSERT INTO widget_instances VALUES (?, ?, ?, ?, ?)")
+      .run(widgetId, "freedom-fee-check", "Legacy widget", "{}", Date.now());
+    for (const { id, origin } of links) {
+      db.prepare("INSERT INTO widget_embed_links VALUES (?, ?, ?, 1, ?)")
+        .run(id, widgetId, JSON.stringify([origin]), Date.now());
+    }
+  } finally {
+    db.close();
+  }
+  return { widgetId, links };
+}
 
 function der(tag: number, value: Buffer) {
   const size = value.length;
@@ -44,6 +78,7 @@ function testCertificate() {
 
 export async function startPlatform(credentials: Credentials) {
   const database = resolve(".data/e2e", randomUUID(), "platform.sqlite");
+  const legacy = seedLegacyWidget(database);
   mkdirSync(".next/standalone/.next", { recursive: true });
   cpSync(".next/static", ".next/standalone/.next/static", { recursive: true });
 
@@ -57,7 +92,7 @@ export async function startPlatform(credentials: Credentials) {
         return;
       }
       outgoing.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(
-        `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Embed host fixture</title><body style="margin:0"><iframe title="Embedded fixture" style="display:block;width:100%;height:1000px;border:0" src="${embedOrigin}/embed/${id}"></iframe></body></html>`,
+        `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Embed host fixture</title><body style="margin:0"><iframe title="Embedded fixture" style="display:block;width:100%;height:1000px;border:0" src="${adminOrigin}/embed/${id}"></iframe></body></html>`,
       );
       return;
     }
@@ -95,8 +130,7 @@ export async function startPlatform(credentials: Credentials) {
         HOSTNAME: loopback,
         PORT: String(backendPort),
         WIDGET_DB_PATH: database,
-        WIDGET_ADMIN_ORIGIN: adminOrigin,
-        WIDGET_EMBED_ORIGIN: embedOrigin,
+        WIDGET_PUBLIC_ORIGIN: adminOrigin,
         WIDGET_ADMIN_USERNAME: username,
         WIDGET_ADMIN_PASSWORD: password,
         WIDGET_TRUST_CLOUDFLARE: "0",
@@ -135,6 +169,8 @@ export async function startPlatform(credentials: Credentials) {
   }
   return {
     close,
+    database,
+    legacy,
     async restart(next: Credentials) {
       await stopBackend();
       await startBackend(next);

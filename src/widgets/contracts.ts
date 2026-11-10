@@ -30,6 +30,7 @@ export type WidgetInstance = {
   templateKey: string;
   name: string;
   configuration: WidgetConfiguration;
+  approvedOrigins: string[] | null;
 };
 
 export type WidgetTemplate = WidgetTemplateSummary & {
