@@ -1,9 +1,16 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { adminOrigin, approvedOrigin, backendOrigin, otherOrigin, startPlatform } from "./platform-server";
 
 const iframeNavigation = { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate" };
+
+async function analyticsAt(page: Page, path: string) {
+  return page.evaluate(async (url) => {
+    const response = await fetch(url);
+    return { status: response.status, cacheControl: response.headers.get("cache-control"), data: await response.json() };
+  }, path);
+}
 
 function requestAt(context: BrowserContext, url: string, headers?: Record<string, string>) {
   const address = new URL(url);
@@ -154,6 +161,8 @@ test("runtime credentials, widget settings, and production embed management", as
       await legacyHost.goto(`${links[0].origin}/${links[0].id}`);
       await expect(legacyHost.frameLocator("iframe").locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await legacyHost.close();
+      const analytics = await analyticsAt(page, `/api/admin/widget-analytics?widgetId=${widgetId}`);
+      expect(analytics.data).toMatchObject({ views: 1, visitorDays: null, measuredViews: 0 });
 
       await page.goto(`/admin/widgets/${widgetId}`);
       await page.getByLabel("Widget name", { exact: true }).fill("Legacy widget renamed");
@@ -676,6 +685,120 @@ test("runtime credentials, widget settings, and production embed management", as
       await signIn(probe, "rate-probe", "incorrect-password");
       await expect(probe.getByText(/Too many attempts/)).toBeVisible();
     });
+  } finally {
+    await visitor.close();
+    await platform.close();
+  }
+});
+
+test("recover from unknown pages and measure approved embeds in the live dashboard", async ({ page, browser }, testInfo) => {
+  const credentials = { username: "analytics-owner", password: randomBytes(24).toString("base64url") };
+  const platform = await startPlatform(credentials, { trustCloudflare: true });
+  const agent = "Widget Console analytics integration test";
+  const visitor = await browser.newContext({
+    baseURL: adminOrigin,
+    ignoreHTTPSErrors: true,
+    userAgent: agent,
+    extraHTTPHeaders: { "CF-Connecting-IP": "192.0.2.10" },
+  });
+  const endpoint = "/api/admin/widget-analytics";
+  try {
+    const host = await visitor.newPage();
+    const missing = await host.goto("/embed");
+    expect(missing?.status()).toBe(404);
+    await expect(host.getByRole("heading", { name: "Page not found", exact: true })).toBeVisible();
+    await expect(host.getByRole("main")).toHaveCSS("background-color", "rgb(247, 247, 240)");
+    await host.screenshot({ path: testInfo.outputPath("not-found.png"), fullPage: true, animations: "disabled" });
+    const home = host.getByRole("link", { name: "Return home", exact: true });
+    await expect(home).toHaveAttribute("href", "/");
+    await home.click();
+    await expect(host).toHaveURL(/\/sign-in$/);
+    expect((await analyticsAt(host, endpoint)).status).toBe(401);
+    for (const path of ["/admin/analytics", `/admin/analytics/${platform.legacy.widgetId}`]) {
+      await host.goto(path);
+      await expect(host).toHaveURL(/\/sign-in$/);
+    }
+
+    await page.goto("/sign-in");
+    await signIn(page, credentials.username, credentials.password);
+    await expect(page).toHaveURL(/\/admin$/);
+    expect((await analyticsAt(page, `${endpoint}?widgetId=${randomUUID()}`)).status).toBe(404);
+
+    const firstPath = await createWidget(page, "freedom-fee-check", "Analytics first widget");
+    const firstWidget = firstPath.split("/").pop();
+    await expect(page.frameLocator('iframe[title="Widget preview"]').getByRole("heading", { name: "Fee Check" })).toBeVisible();
+    await saveApprovedOrigins(page, approvedOrigin, otherOrigin);
+    await page.getByRole("link", { name: "Embed links", exact: true }).click();
+    const first = await createLink(page);
+    const secondPath = await createWidget(page, "freedom-fee-check", "Analytics second widget");
+    const secondWidget = secondPath.split("/").pop();
+    await saveApprovedOrigins(page, otherOrigin);
+    await page.getByRole("link", { name: "Embed links", exact: true }).click();
+    const second = await createLink(page);
+
+    await page.clock.install();
+    await page.getByRole("navigation", { name: "Admin navigation" }).getByRole("link", { name: "Analytics" }).click();
+    await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Refresh analytics", exact: true })).toBeVisible();
+    const loads = page.locator('[data-metric="views"]');
+    await expect(loads).toHaveText("0");
+
+    const widget = host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" });
+    for (const url of [
+      `${approvedOrigin}/${first.id}`,
+      `${approvedOrigin}/${first.id}`,
+      `${otherOrigin}/${first.id}`,
+      `${otherOrigin}/${second.id}`,
+    ]) {
+      await host.goto(url);
+      await expect(widget).toBeVisible();
+    }
+    await expectFrameBlocked(host, approvedOrigin, second.id);
+    const firstEmbed = `${adminOrigin}/embed/${first.id}`;
+    const secondVisitor = { "CF-Connecting-IP": "192.0.2.11", "User-Agent": agent };
+    expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, ...secondVisitor, Referer: otherOrigin })).status()).toBe(200);
+    expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, "User-Agent": agent, Referer: approvedOrigin, "CF-Connecting-IP": "" })).status()).toBe(200);
+    expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, ...secondVisitor })).status()).toBe(200);
+    expect((await requestAt(visitor, firstEmbed, { ...secondVisitor, Referer: otherOrigin })).status()).toBe(403);
+
+    await page.bringToFront();
+    await page.clock.fastForward(31_000);
+    await expect(loads).toHaveText("6");
+    await page.screenshot({ path: testInfo.outputPath("analytics.png"), fullPage: true });
+    await page.setViewportSize({ width: 320, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    await page.screenshot({ path: testInfo.outputPath("analytics-mobile.png"), fullPage: true });
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const report = await analyticsAt(page, `${endpoint}?range=7`);
+    expect(report.status).toBe(200);
+    expect(report.cacheControl).toContain("no-store");
+    expect(report.data).toMatchObject({
+      views: 6, visitorDays: 2, measuredViews: 5, range: 7,
+      origins: expect.arrayContaining([
+        expect.objectContaining({ origin: approvedOrigin, views: 3, visitorDays: 1 }),
+        expect.objectContaining({ origin: otherOrigin, views: 3, visitorDays: 2 }),
+      ]),
+      widgets: expect.arrayContaining([
+        expect.objectContaining({ widgetId: firstWidget, views: 5, visitorDays: 2 }),
+        expect.objectContaining({ widgetId: secondWidget, views: 1, visitorDays: 1 }),
+      ]),
+    });
+    const rangeRequest = page.waitForResponse((response) => response.url().includes(`${endpoint}?range=30`));
+    await page.getByRole("button", { name: "30 days", exact: true }).click();
+    expect(await (await rangeRequest).json()).toMatchObject({ range: 30, views: 6 });
+
+    await page.goto(`/admin/analytics/${firstWidget}`);
+    await expect(page.getByRole("heading", { name: "Analytics first widget", exact: true })).toBeVisible();
+    await expect(loads).toHaveText("5");
+    await page.goto(`${secondPath}?tab=links`);
+    await second.row.getByText("Manage link", { exact: true }).click();
+    await second.row.getByText("Disable link", { exact: true }).click();
+    await second.row.getByRole("button", { name: "Confirm disable", exact: true }).click();
+    await expect(second.row.getByText("Disabled", { exact: true })).toBeVisible();
+    const disabled = await requestAt(visitor, `${adminOrigin}/embed/${second.id}`, { ...iframeNavigation, ...secondVisitor, Referer: otherOrigin });
+    expect(disabled.status()).toBe(404);
+    const widgetReport = await analyticsAt(page, `${endpoint}?widgetId=${secondWidget}`);
+    expect(widgetReport.data).toMatchObject({ views: 1, visitorDays: 1 });
   } finally {
     await visitor.close();
     await platform.close();

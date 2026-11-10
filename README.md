@@ -27,7 +27,7 @@ Deploy the stack and wait for the `app` container to show **Healthy**. The image
 | `WIDGET_BIND_IP` | `127.0.0.1`, which keeps the published port on the Docker host's loopback interface. |
 | `WIDGET_VOLUME_NAME` | `widget-console-data`, the named volume for SQLite. |
 | `WIDGET_NETWORK_NAME` | `widget-console`, the Docker network the app joins. The app's DNS alias stays `widget-console` even if you rename the network. |
-| `WIDGET_TRUST_CLOUDFLARE` | `0`. Use `1` for per-IP sign-in throttling only when all sign-in traffic reaches the app through a trusted Cloudflare connector. |
+| `WIDGET_TRUST_CLOUDFLARE` | `0`. Use `1` for per-IP sign-in throttling and daily visitor estimates when the app receives requests exclusively through a trusted Cloudflare connector. |
 
 Use an exact HTTPS origin for `WIDGET_PUBLIC_ORIGIN`, such as `https://widgets.example.com`, with no path. The username can contain 3–64 letters, digits, periods, underscores, or hyphens and must start with a letter or digit. Common passwords are rejected.
 
@@ -119,6 +119,14 @@ Use **Style** on a supported widget to change its accent and panel background. T
 Use **Size** to set this widget's iframe heights for compact, mobile, and wide containers. The template supplies the defaults. Enter a whole number between 240 and 2400 pixels or clear the field to restore its default. The generated embed stays full width and uses the height for the space available on the host page. Copy the entire embed block again after changing sizes. If the host strips the style block, the iframe uses the wide height.
 
 The dashboard can be installed as **Widget Console** from the install option in a supporting browser. It opens at the dashboard and uses the same sign-in as the browser.
+
+### Embed analytics
+
+Open **Analytics** in the admin navigation for totals across all widgets, or choose a widget to see its own activity and referring sites. Reports show the last 7, 30, or 90 UTC calendar days, including today. Open pages refresh every 30 seconds while visible.
+
+An embed load is a request for an enabled widget iframe with an approved HTTPS referrer. Previews and requests that omit their referrer are excluded. The count represents loads rather than time on screen or widget interactions. Data starts accumulating after deployment and stays in the existing SQLite volume for up to 90 days. Replacing an embed link keeps the widget's analytics. Deleting a widget removes its analytics.
+
+Visitor estimates require `WIDGET_TRUST_CLOUDFLARE=1` and a valid visitor IP supplied by Cloudflare. Enable it only when requests reach the app through your trusted Cloudflare connector. The app derives a different visitor key each UTC day and discards the raw IP and user agent after processing the request. **Estimated visitor-days** adds the daily distinct counts, so a visitor can count on more than one day. Coverage shows the share of recorded loads with a visitor signal. [Cloudflare visitor IP header](https://developers.cloudflare.com/fundamentals/reference/http-headers/#cf-connecting-ip)
 
 ### Fee Check
 

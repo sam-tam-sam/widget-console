@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Eye, Link2, Paintbrush, Ruler, Settings, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ChartNoAxesColumnIncreasing, Eye, Link2, Paintbrush, Ruler, Settings, ShieldCheck } from "lucide-react";
 import { AdminShell } from "@/components/admin/shell";
 import { WidgetLinks } from "@/components/admin/widget-links";
 import { WidgetPreview } from "@/components/admin/widget-preview";
 import { WidgetOriginsSettings, WidgetSettings, WidgetStyleSettings } from "@/components/admin/widget-settings";
 import { WidgetSizeSettings } from "@/components/admin/widget-size-settings";
+import { Button } from "@/components/ui/button";
 import { requireAdmin } from "@/lib/auth";
 import { getInstance, listLinks, listTemplates } from "@/lib/widgets";
 import "@/components/admin/widget-sections.css";
@@ -68,6 +69,9 @@ export default async function WidgetPage({
           <h1>{widget.name}</h1>
           <p>{template?.name ?? "Unavailable template"}</p>
         </div>
+        <Button asChild variant="outline">
+          <Link href={`/admin/analytics/${widget.id}`}><ChartNoAxesColumnIncreasing aria-hidden="true" />View analytics</Link>
+        </Button>
       </header>
       <nav className="console-widget-tabs" aria-label="Widget sections">
         {availableSections.map(({ key, label, query, icon: Icon }) => (

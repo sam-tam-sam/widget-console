@@ -318,7 +318,7 @@ export function resolveEmbed(id: string) {
   try {
     const origins = normalizeOrigins(JSON.parse(row.approved_origins_json ?? row.origins_json));
     const preview = renderSavedInstance(row);
-    return preview ? { origins, html: preview.html, scriptHashes: preview.scriptHashes } : null;
+    return preview ? { widgetId: row.id, origins, html: preview.html, scriptHashes: preview.scriptHashes } : null;
   } catch (error) {
     if (error instanceof WidgetError || error instanceof SyntaxError) return null;
     throw error;

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Blocks, LayoutDashboard, LogOut } from "lucide-react";
+import { Blocks, ChartNoAxesColumnIncreasing, LayoutDashboard, LogOut } from "lucide-react";
 import { signOut } from "@/lib/auth-actions";
 import { Button } from "@/components/ui/button";
 import "./dashboard.css";
@@ -8,9 +8,10 @@ import "./dashboard.css";
 type AdminShellProps = {
   username: string;
   children: ReactNode;
+  activeSection?: "widgets" | "analytics";
 };
 
-export function AdminShell({ username, children }: AdminShellProps) {
+export function AdminShell({ username, children, activeSection = "widgets" }: AdminShellProps) {
   const initial = username.trim().charAt(0).toLocaleUpperCase() || "A";
 
   return (
@@ -22,8 +23,11 @@ export function AdminShell({ username, children }: AdminShellProps) {
           <span>Widget Console</span>
         </Link>
         <nav className="console-nav" aria-label="Admin navigation">
-          <Link href="/admin" aria-current="page">
+          <Link href="/admin" aria-current={activeSection === "widgets" ? "page" : undefined}>
             <LayoutDashboard size={17} aria-hidden="true" /> Widgets
+          </Link>
+          <Link href="/admin/analytics" aria-current={activeSection === "analytics" ? "page" : undefined}>
+            <ChartNoAxesColumnIncreasing size={17} aria-hidden="true" /> Analytics
           </Link>
         </nav>
         <div className="console-profile">

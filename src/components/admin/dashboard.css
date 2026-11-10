@@ -437,9 +437,8 @@
 }
 
 @media (max-width: 550px) {
-  .console-sidebar { grid-template-areas: "brand profile"; padding: .5rem .9rem; }
+  .console-sidebar { padding: .5rem .9rem; }
   .console-brand { min-height: 44px; margin: 0; }
-  .console-nav { display: none; }
   .console-profile [data-slot="button"] { border: 1px solid var(--console-sidebar-border); }
   .console-main { padding: 1.15rem .9rem 2.5rem; }
   .console-page-header { align-items: start; flex-direction: column; gap: .75rem; }

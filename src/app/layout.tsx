@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
+import "./theme.css";
 
 export const metadata: Metadata = {
   applicationName: "Widget Console",

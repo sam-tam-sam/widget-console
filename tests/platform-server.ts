@@ -76,7 +76,7 @@ function testCertificate() {
   };
 }
 
-export async function startPlatform(credentials: Credentials) {
+export async function startPlatform(credentials: Credentials, { trustCloudflare = false } = {}) {
   const database = resolve(".data/e2e", randomUUID(), "platform.sqlite");
   const legacy = seedLegacyWidget(database);
   mkdirSync(".next/standalone/.next", { recursive: true });
@@ -133,7 +133,7 @@ export async function startPlatform(credentials: Credentials) {
         WIDGET_PUBLIC_ORIGIN: adminOrigin,
         WIDGET_ADMIN_USERNAME: username,
         WIDGET_ADMIN_PASSWORD: password,
-        WIDGET_TRUST_CLOUDFLARE: "0",
+        WIDGET_TRUST_CLOUDFLARE: trustCloudflare ? "1" : "0",
       },
     });
     child = backend;

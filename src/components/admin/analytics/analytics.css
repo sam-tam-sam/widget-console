@@ -1,0 +1,183 @@
+.analytics-dashboard,
+.analytics-content {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+.analytics-header { margin-bottom: 0; }
+.analytics-dashboard > .console-back { justify-self: start; margin-bottom: 0; }
+
+.analytics-toolbar,
+.analytics-update,
+.analytics-ranges,
+.analytics-panel-heading {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+
+.analytics-toolbar,
+.analytics-panel-heading { justify-content: space-between; }
+.analytics-toolbar { flex-wrap: wrap; }
+
+.analytics-ranges {
+  max-width: 100%;
+  gap: .2rem;
+  padding: .2rem;
+  border: 1px solid var(--border);
+  border-radius: .7rem;
+  background: var(--card);
+}
+
+.analytics-update,
+.analytics-panel-heading > span {
+  color: var(--muted-foreground);
+  font-size: .82rem;
+}
+
+.analytics-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .8rem;
+  margin: 0;
+}
+
+.analytics-metric,
+.analytics-panel {
+  min-width: 0;
+  padding: clamp(.8rem, 2vw, 1.2rem);
+}
+
+.analytics-metric dt {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: .875rem;
+  font-weight: 630;
+}
+
+.analytics-metric dt svg { flex: none; color: var(--primary); }
+.analytics-metric dd { margin: 0; }
+.analytics-metric dd[data-metric] {
+  color: var(--primary);
+  font-size: clamp(1.9rem, 3.8vw, 2.9rem);
+  font-weight: 690;
+  line-height: 1.25;
+  letter-spacing: -.045em;
+  overflow-wrap: anywhere;
+}
+
+.analytics-metric-note,
+.analytics-loading,
+.analytics-method p {
+  color: var(--muted-foreground);
+  font-size: .875rem;
+}
+
+.analytics-columns {
+  display: grid;
+  align-items: start;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: .8rem;
+}
+
+.analytics-panel-heading { margin-bottom: .8rem; }
+.analytics-panel-heading h2 { font-size: 1rem; font-weight: 680; }
+.analytics-plot {
+  position: relative;
+  height: 10rem;
+  border-bottom: 1px solid var(--border);
+  background: repeating-linear-gradient(to top, transparent 0 calc(25% - 1px), var(--border) calc(25% - 1px) 25%);
+}
+
+.analytics-bars {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  gap: clamp(1px, .2vw, 3px);
+}
+
+.analytics-bar-track {
+  display: flex;
+  align-items: end;
+  min-width: 0;
+  flex: 1;
+}
+
+.analytics-bar {
+  width: 100%;
+  border-radius: .2rem .2rem 0 0;
+  background: var(--primary);
+}
+
+.analytics-plot-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: .7rem;
+  color: var(--muted-foreground);
+  text-align: center;
+  font-size: .875rem;
+}
+
+.analytics-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: .3rem;
+  margin-top: .4rem;
+  color: var(--muted-foreground);
+  font-size: .75rem;
+}
+
+.analytics-daily-detail { margin-top: .35rem; }
+.analytics-table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: .875rem;
+}
+
+.analytics-table th,
+.analytics-table td {
+  padding: .65rem .25rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.analytics-table th { font-weight: 610; }
+.analytics-table thead th { color: var(--muted-foreground); font-size: .75rem; }
+.analytics-table th:first-child { width: 54%; text-align: left; }
+.analytics-table :is(th, td):not(:first-child) { text-align: right; }
+.analytics-table td { font-variant-numeric: tabular-nums; }
+.analytics-table tbody tr:last-child > * { border-bottom: 0; }
+.analytics-table a, .analytics-alert a { color: var(--primary); text-decoration: underline; text-underline-offset: .2em; }
+
+.analytics-alert {
+  border: 1px solid var(--border);
+  border-left: .25rem solid var(--destructive);
+  border-radius: .5rem;
+  background: var(--card);
+  padding: .6rem .8rem;
+}
+
+.analytics-method { padding: 0 .35rem; }
+.analytics-method p { max-width: 76ch; margin-bottom: .45rem; }
+
+@media (max-width: 68rem) {
+  .analytics-columns { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 36rem) {
+  .analytics-metrics { grid-template-columns: minmax(0, 1fr); gap: .55rem; }
+  .analytics-metric {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .15rem .5rem;
+  }
+  .analytics-metric dd[data-metric] { grid-column: 2; grid-row: span 2; text-align: right; }
+  .analytics-metric-note { grid-column: 1; font-size: .8rem; }
+}
