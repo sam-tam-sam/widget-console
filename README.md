@@ -29,6 +29,8 @@ Deploy the stack and wait for the `app` container to show **Healthy**. The image
 | `WIDGET_NETWORK_NAME` | `widget-console`, the Docker network the app joins. The app's DNS alias stays `widget-console` even if you rename the network. |
 | `WIDGET_TRUST_CLOUDFLARE` | `0`. Use `1` for per-IP sign-in throttling and daily visitor estimates when the app receives requests exclusively through a trusted Cloudflare connector. |
 
+When the app receives a trusted visitor IP, sign-in attempts are limited for that source. The application also limits simultaneous password checks. If the public sign-in page lacks a trusted IP, configure a per-IP rate limit at your proxy for `POST /sign-in` on the app hostname. Keep the iframe challenge exception scoped to the embed path. [Cloudflare rate limiting rules](https://developers.cloudflare.com/waf/rate-limiting-rules/create-zone-dashboard/)
+
 Use an exact HTTPS origin for `WIDGET_PUBLIC_ORIGIN`, such as `https://widgets.example.com`, with no path. The username can contain 3–64 letters, digits, periods, underscores, or hyphens and must start with a letter or digit. Common passwords are rejected.
 
 ## Connect Cloudflare Tunnel
@@ -125,6 +127,8 @@ The dashboard can be installed as **Widget Console** from the install option in 
 Open **Analytics** in the admin navigation for totals across all widgets, or choose a widget to see its own activity and referring sites. Reports show the last 7, 30, or 90 UTC calendar days, including today. Open pages refresh every 30 seconds while visible.
 
 An embed load is a request for an enabled widget iframe with an approved HTTPS referrer. Previews and requests that omit their referrer are excluded. The count represents loads rather than time on screen or widget interactions. Data starts accumulating after deployment and stays in the existing SQLite volume for up to 90 days. Replacing an embed link keeps the widget's analytics. Deleting a widget removes its analytics.
+
+The analytics counter caps bursts per widget and origin. When Cloudflare supplies a trusted IP, each source has its own limit. Otherwise the app caps unmeasured loads for the widget and origin. Loads above these limits still display the widget. Historical counts keep their original values.
 
 Visitor estimates require `WIDGET_TRUST_CLOUDFLARE=1` and a valid visitor IP supplied by Cloudflare. Enable it only when requests reach the app through your trusted Cloudflare connector. The app derives a different visitor key each UTC day and discards the raw IP and user agent after processing the request. **Estimated visitor-days** adds the daily distinct counts, so a visitor can count on more than one day. Coverage shows the share of recorded loads with a visitor signal. [Cloudflare visitor IP header](https://developers.cloudflare.com/fundamentals/reference/http-headers/#cf-connecting-ip)
 

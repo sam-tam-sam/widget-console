@@ -8,6 +8,7 @@ type FormState = { message?: string; error?: boolean };
 const messages: Record<string, string> = {
   invalid: "The username or password is incorrect.",
   throttled: "Too many attempts. Wait a minute and try again.",
+  busy: "Sign-in is busy. Try again in a moment.",
   unavailable: "Sign-in is unavailable. Check the deployment settings.",
 };
 

@@ -674,16 +674,17 @@ test("runtime credentials, widget settings, and production embed management", as
       await host.close();
     });
 
-    await test.step("throttle repeated login attempts", async () => {
+    await test.step("keep sign-in available without a trusted client IP", async () => {
       const probe = await visitor.newPage();
-      for (let attempt = 0; attempt < 6; attempt++) {
+      for (let attempt = 0; attempt < 7; attempt++) {
         await probe.goto("/sign-in");
-        await signIn(probe, "rate-probe", "incorrect-password");
+        await signIn(probe, rotated.username, "incorrect-password");
         await expect(probe.getByText("The username or password is incorrect.")).toBeVisible();
       }
       await probe.goto("/sign-in");
-      await signIn(probe, "rate-probe", "incorrect-password");
-      await expect(probe.getByText(/Too many attempts/)).toBeVisible();
+      await signIn(probe, rotated.username, rotated.password);
+      await expect(probe).toHaveURL(/\/admin$/);
+      await probe.close();
     });
   } finally {
     await visitor.close();
@@ -799,6 +800,45 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     expect(disabled.status()).toBe(404);
     const widgetReport = await analyticsAt(page, `${endpoint}?widgetId=${secondWidget}`);
     expect(widgetReport.data).toMatchObject({ views: 1, visitorDays: 1 });
+
+    await test.step("filter repeated analytics loads while continuing to serve the widget", async () => {
+      const before = await analyticsAt(page, `${endpoint}?widgetId=${firstWidget}`);
+      const repeatedSource = { "CF-Connecting-IP": "192.0.2.30", Referer: approvedOrigin };
+      // Cross at most two accounting windows, even if the fixture starts near a minute boundary.
+      for (let load = 0; load < 26; load++) {
+        const response = await requestAt(visitor, firstEmbed, {
+          ...iframeNavigation, ...repeatedSource, "User-Agent": load % 2 ? agent : `${agent} secondary browser`,
+        });
+        expect(response.status()).toBe(200);
+      }
+      const after = await analyticsAt(page, `${endpoint}?widgetId=${firstWidget}`);
+      const counted = after.data.views - before.data.views;
+      expect(counted).toBeGreaterThanOrEqual(12);
+      expect(counted).toBeLessThanOrEqual(24);
+
+      await host.setExtraHTTPHeaders({ "CF-Connecting-IP": "192.0.2.31" });
+      await host.goto(`${approvedOrigin}/${first.id}`);
+      await expect(widget).toBeVisible();
+      const otherSource = await analyticsAt(page, `${endpoint}?widgetId=${firstWidget}`);
+      expect(otherSource.data.views).toBe(after.data.views + 1);
+    });
+
+    await test.step("throttle one trusted source without blocking another source's sign-in", async () => {
+      await host.setExtraHTTPHeaders({ "CF-Connecting-IP": "192.0.2.40" });
+      for (let attempt = 0; attempt < 12; attempt++) {
+        await host.goto("/sign-in");
+        await signIn(host, attempt % 2 ? credentials.username : "fixture-alias", "incorrect-password");
+        await expect(host.getByText("The username or password is incorrect.")).toBeVisible();
+      }
+      await host.goto("/sign-in");
+      await signIn(host, credentials.username, credentials.password);
+      await expect(host.getByText(/Too many attempts/)).toBeVisible();
+
+      await host.setExtraHTTPHeaders({ "CF-Connecting-IP": "192.0.2.41" });
+      await host.goto("/sign-in");
+      await signIn(host, credentials.username, credentials.password);
+      await expect(host).toHaveURL(/\/admin$/);
+    });
   } finally {
     await visitor.close();
     await platform.close();

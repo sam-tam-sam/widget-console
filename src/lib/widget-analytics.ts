@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { isIP } from "node:net";
 import type { DatabaseSync } from "node:sqlite";
+import { trustedCloudflareIp } from "@/lib/client-ip";
 import { getDb } from "@/lib/db";
 
 export type AnalyticsRange = 7 | 30 | 90;
@@ -22,7 +22,11 @@ export function parseAnalyticsRange(value: string | null | undefined): Analytics
 }
 
 const dayMs = 86_400_000;
+const minuteMs = 60_000;
 const retentionDays = 90;
+const trustedLoadsPerMinute = 12;
+const unmeasuredLoadsPerMinute = 60;
+const unmeasuredSourceKey = Buffer.alloc(0);
 const stores = new WeakMap<DatabaseSync, ReturnType<typeof prepareStore>>();
 
 function utcDate(time: number) {
@@ -54,12 +58,28 @@ function prepareStore(db: DatabaseSync) {
       day TEXT PRIMARY KEY,
       secret BLOB NOT NULL
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS widget_analytics_load_limits (
+      window_minute INTEGER NOT NULL,
+      widget_id TEXT NOT NULL REFERENCES widget_instances(id) ON DELETE CASCADE,
+      origin TEXT NOT NULL,
+      source_key BLOB NOT NULL,
+      loads INTEGER NOT NULL,
+      PRIMARY KEY (window_minute, widget_id, origin, source_key)
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS widget_analytics_load_limits_widget ON widget_analytics_load_limits(widget_id);
   `);
 
   return {
     lastPrunedDate: "",
+    lastPrunedWindow: -1,
     secretDate: "",
     secret: undefined as Uint8Array | undefined,
+    chargeLoad: db.prepare(`
+      INSERT INTO widget_analytics_load_limits (window_minute, widget_id, origin, source_key, loads)
+      VALUES (?, ?, ?, ?, 1)
+      ON CONFLICT (window_minute, widget_id, origin, source_key) DO UPDATE SET loads = loads + 1
+      WHERE loads < ?
+    `),
     upsertViews: db.prepare(`
       INSERT INTO widget_analytics_daily (day, widget_id, origin, views, measured_views)
       VALUES (?, ?, ?, 1, ?)
@@ -86,23 +106,22 @@ function analyticsStore(db: DatabaseSync, now: number) {
     db.prepare("DELETE FROM widget_analytics_keys WHERE day < ?").run(today);
     store.lastPrunedDate = today;
   }
+  const window = Math.floor(now / minuteMs);
+  if (store.lastPrunedWindow !== window) {
+    db.prepare("DELETE FROM widget_analytics_load_limits WHERE window_minute < ?").run(window);
+    store.lastPrunedWindow = window;
+  }
   return store;
 }
 
-function visitorKey(db: DatabaseSync, store: ReturnType<typeof prepareStore>, headers: Headers, day: string) {
-  if (process.env.WIDGET_TRUST_CLOUDFLARE !== "1") return null;
-  const ip = headers.get("cf-connecting-ip")?.trim().toLowerCase() ?? "";
-  const agent = headers.get("user-agent");
-  if (!isIP(ip) || !agent || agent.length > 1024) return null;
-
+function dailySecret(db: DatabaseSync, store: ReturnType<typeof prepareStore>, day: string) {
   if (store.secretDate !== day) {
     db.prepare("INSERT INTO widget_analytics_keys (day, secret) VALUES (?, ?) ON CONFLICT (day) DO NOTHING").run(day, randomBytes(32));
     const row = db.prepare("SELECT secret FROM widget_analytics_keys WHERE day = ?").get(day) as { secret: Uint8Array };
     store.secret = row.secret;
     store.secretDate = day;
   }
-  if (!store.secret) return null;
-  return createHmac("sha256", store.secret).update(day).update("\0").update(ip).update("\0").update(agent).digest().subarray(0, 16);
+  return store.secret;
 }
 
 function approvedReferrer(headers: Headers, origins: readonly string[]): string | null {
@@ -126,17 +145,27 @@ export function recordWidgetEmbedLoad(request: Request, widgetId: string, origin
   try {
     const now = Date.now();
     const day = utcDate(now);
+    const window = Math.floor(now / minuteMs);
     const db = getDb();
     const store = analyticsStore(db, now);
-    const key = visitorKey(db, store, request.headers, day);
-    if (!key) {
-      store.upsertViews.run(day, widgetId, origin, 0);
-      return;
-    }
+    const ip = trustedCloudflareIp(request.headers);
+    const secret = ip ? dailySecret(db, store, day) : undefined;
+    const sourceKey = ip && secret
+      ? createHmac("sha256", secret).update("analytics-rate\0").update(ip).digest().subarray(0, 16)
+      : unmeasuredSourceKey;
+    const limit = ip ? trustedLoadsPerMinute : unmeasuredLoadsPerMinute;
+
     db.exec("BEGIN IMMEDIATE");
     try {
-      store.upsertViews.run(day, widgetId, origin, 1);
-      store.insertVisitor.run(day, widgetId, origin, key);
+      const charge = store.chargeLoad.run(window, widgetId, origin, sourceKey, limit);
+      if (charge.changes > 0) {
+        const agent = request.headers.get("user-agent");
+        const visitor = ip && secret && agent && agent.length <= 1024
+          ? createHmac("sha256", secret).update(day).update("\0").update(ip).update("\0").update(agent).digest().subarray(0, 16)
+          : null;
+        store.upsertViews.run(day, widgetId, origin, visitor ? 1 : 0);
+        if (visitor) store.insertVisitor.run(day, widgetId, origin, visitor);
+      }
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");

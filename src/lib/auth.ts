@@ -1,10 +1,10 @@
 import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
-import { isIP } from "node:net";
 import { argon2id, hash, verify } from "argon2";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { trustedCloudflareIp } from "@/lib/client-ip";
 import { getDb } from "@/lib/db";
 import { applicationOrigin } from "@/lib/embeds";
 import passwordDenylist from "@/lib/auth-password-denylist.json";
@@ -12,6 +12,8 @@ import passwordDenylist from "@/lib/auth-password-denylist.json";
 const SESSION_COOKIE = "widget_admin_session";
 const SESSION_TTL = 8 * 60 * 60 * 1000;
 const ATTEMPT_WINDOW = 60 * 1000;
+const ATTEMPTS_PER_SOURCE = 12;
+const MAX_CONCURRENT_VERIFICATIONS = 2;
 
 const HASH_OPTIONS = {
   type: argon2id,
@@ -50,6 +52,10 @@ type AdminRow = { username: string; password_hash: string };
 
 const initialized = new WeakSet<object>();
 let configuredAdmin: Promise<AdminRow | null> | undefined;
+const processState = globalThis as typeof globalThis & {
+  widgetConsoleAuth?: { activeVerifications: number };
+};
+const authRuntime = processState.widgetConsoleAuth ??= { activeVerifications: 0 };
 
 function database() {
   const db = getDb();
@@ -180,48 +186,22 @@ export async function isAdminReady() {
   `).get(admin.username, admin.password_hash));
 }
 
-function requestBuckets(request: Headers, account: string) {
-  const buckets = [
-    { key: "all", max: 30 },
-    { key: `account:${tokenHash(account.toLowerCase())}`, max: 6 },
-  ];
-  const ip = process.env.WIDGET_TRUST_CLOUDFLARE === "1"
-    ? request.get("cf-connecting-ip")?.trim()
-    : undefined;
-  if (ip && isIP(ip)) buckets.push({ key: `source:${tokenHash(ip)}`, max: 12 });
-  return buckets;
-}
-
-function chargeAttempt(request: Headers, account: string) {
+function chargeSourceAttempt(ip: string) {
   const db = database();
   const now = Date.now();
-  const buckets = requestBuckets(request, account);
   db.exec("BEGIN IMMEDIATE");
   try {
     db.prepare("DELETE FROM admin_auth_limits WHERE expires_at <= ?").run(now);
-    const counter = db.prepare("SELECT requests FROM admin_auth_limits WHERE bucket = ?");
-    const allowed = buckets.every(({ key, max }) => {
-      const row = counter.get(key) as { requests: number } | undefined;
-      return !row || row.requests < max;
-    });
-    if (allowed) {
-      const charge = db.prepare(`
-        INSERT INTO admin_auth_limits (bucket, requests, expires_at) VALUES (?, 1, ?)
-        ON CONFLICT(bucket) DO UPDATE SET requests = requests + 1
-      `);
-      for (const { key } of buckets) charge.run(key, now + ATTEMPT_WINDOW);
-    }
+    const result = db.prepare(`
+      INSERT INTO admin_auth_limits (bucket, requests, expires_at) VALUES (?, 1, ?)
+      ON CONFLICT(bucket) DO UPDATE SET requests = requests + 1 WHERE requests < ?
+    `).run(`source:${tokenHash(ip)}`, now + ATTEMPT_WINDOW, ATTEMPTS_PER_SOURCE);
     db.exec("COMMIT");
-    return allowed;
+    return result.changes === 1;
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
   }
-}
-
-function clearAccountAttempts(username: string) {
-  database().prepare("DELETE FROM admin_auth_limits WHERE bucket = ?")
-    .run(`account:${tokenHash(username.toLowerCase())}`);
 }
 
 async function createSession(admin: AdminRow) {
@@ -272,13 +252,21 @@ export async function signInWithPassword(form: FormData) {
   if (!admin) return "unavailable";
   const username = parseUsername(form.get("username"));
   const password = parsePassword(form.get("password"));
-  if (!chargeAttempt(request, username ?? "")) return "throttled";
   if (!username || !password) return "invalid";
 
-  const correctPassword = await verify(admin.password_hash, password);
+  if (authRuntime.activeVerifications >= MAX_CONCURRENT_VERIFICATIONS) return "busy";
+  const ip = trustedCloudflareIp(request);
+  if (ip && !chargeSourceAttempt(ip)) return "throttled";
+
+  let correctPassword: boolean;
+  authRuntime.activeVerifications += 1;
+  try {
+    correctPassword = await verify(admin.password_hash, password);
+  } finally {
+    authRuntime.activeVerifications -= 1;
+  }
   if (username.toLowerCase() !== admin.username.toLowerCase() || !correctPassword) return "invalid";
   if (!await createSession(admin)) return "invalid";
-  clearAccountAttempts(username);
   return "signed-in";
 }
 
