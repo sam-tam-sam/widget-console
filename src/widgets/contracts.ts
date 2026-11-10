@@ -4,7 +4,6 @@ export type WidgetConfiguration = { [key: string]: JsonValue };
 
 export type WidgetAppearance = {
   accent: string;
-  background: string;
   surface: string;
 };
 

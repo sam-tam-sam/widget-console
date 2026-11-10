@@ -9,7 +9,6 @@ import { calculatorStyles } from "./styles";
 const title = "Processing Fee Calculator";
 const appearance: WidgetAppearance = {
   accent: "#26269e",
-  background: "#ffffff",
   surface: "#ffffff",
 };
 
@@ -175,15 +174,17 @@ export const processingFeeCalculator: WidgetTemplate = {
     return widgetDocument(title, css, `<main id="processing-fee-calculator" data-config="${config}">
       <h1 class="fee-sr-only">${title}</h1>
       <form id="calculator-form" novalidate>
-        ${calculationInputs}
-        ${cardTypes(Boolean(plan?.inPersonDebit))}
+        <div class="fee-entry-panel">
+          ${calculationInputs}
+          ${cardTypes(Boolean(plan?.inPersonDebit))}
+        </div>
         ${providerPanel()}
         <p id="form-error" class="fee-error" role="alert" hidden></p>
         <button type="submit" class="fee-primary" id="calculate-button">Calculate savings</button>
       </form>
       ${costDialog}
       ${results(conversionUrl, conversionLabel)}
-      <p class="fee-small-print">Estimates are for comparison only. Actual fees depend on your agreement, card mix, and provider charges. Confirm pricing in writing before switching.</p>
+      <p class="fee-small-print fee-disclaimer">Estimates are for comparison only. Actual fees depend on your agreement, card mix, and provider charges. Confirm pricing in writing before switching.</p>
     </main>`);
   },
 };

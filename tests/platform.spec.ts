@@ -85,6 +85,8 @@ test("runtime credentials, widget settings, and production embed management", as
       const protectedDashboard = await requestAt(visitor, `${adminOrigin}/admin`);
       expect(protectedDashboard.headers().location).toMatch(/\/sign-in$/);
       expect(protectedDashboard.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
+      expect(protectedDashboard.headers()["content-security-policy"]).toContain("form-action 'self'");
+      expect(protectedDashboard.headers()["referrer-policy"]).toBe("same-origin");
       await page.goto("/admin");
       await expect(page).toHaveURL(/\/sign-in$/);
       await signIn(page, "admin", "123456");
@@ -115,6 +117,10 @@ test("runtime credentials, widget settings, and production embed management", as
       for (const { id, origin } of links) {
         expect(await embedPolicy(visitor, id)).toContain(`frame-ancestors ${origin}`);
       }
+      const legacyHost = await visitor.newPage();
+      await legacyHost.goto(`${links[0].origin}/${links[0].id}`);
+      await expect(legacyHost.frameLocator("iframe").locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      await legacyHost.close();
 
       await page.goto(`/admin/widgets/${widgetId}`);
       await page.getByLabel("Widget name", { exact: true }).fill("Legacy widget renamed");
@@ -296,6 +302,7 @@ test("runtime credentials, widget settings, and production embed management", as
       });
       await host.goto(embeddedUrl);
       const calculator = host.frameLocator('iframe[title="Embedded fixture"]');
+      await expect(calculator.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(calculator.locator("#calculate-button")).toHaveCSS("background-color", "rgb(25, 58, 113)");
       const square = calculator.getByRole("button", { name: "Square", exact: true });
       const logo = square.locator("img");
@@ -378,24 +385,23 @@ test("runtime credentials, widget settings, and production embed management", as
 
       await page.getByRole("link", { name: "Settings", exact: true }).click();
       const accent = page.getByLabel("Accent color", { exact: true });
-      const background = page.getByLabel("Page background", { exact: true });
       const surface = page.getByLabel("Panel background", { exact: true });
+      await expect(page.getByLabel("Page background", { exact: true })).toHaveCount(0);
       await expect(accent).toHaveValue("#4a2170");
       await page.getByLabel("Pick accent color", { exact: true }).fill("#0f766e");
       await expect(accent).toHaveValue("#0f766e");
       await page.getByRole("button", { name: "Reset colors", exact: true }).click();
       await expect(accent).toHaveValue("#4a2170");
       await accent.fill("#0f766e");
-      await background.fill("#faf4e8");
       await surface.fill("#effaf5");
       await page.getByRole("button", { name: "Save settings", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: /saved/i })).toBeVisible();
       await page.reload();
       await expect(accent).toHaveValue("#0f766e");
-      await expect(background).toHaveValue("#faf4e8");
       await expect(surface).toHaveValue("#effaf5");
       await page.getByRole("link", { name: "Preview", exact: true }).click();
       await expect(preview.locator(".fee-check-rail")).toHaveCSS("background-color", "rgb(15, 118, 110)");
+      await expect(preview.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
       await createWidget(page, "freedom-fee-check", "Another fee check");
       await expect(preview.locator(".fee-check-rail")).toHaveCSS("background-color", "rgb(74, 33, 112)");
@@ -429,7 +435,7 @@ test("runtime credentials, widget settings, and production embed management", as
       await expect(frame.getByRole("heading", { name: "Fee Check", exact: true })).toBeVisible();
       await expect(frame.locator("body")).not.toContainText(/Freedom/i, { useInnerText: true });
       await expect(frame.locator(".fee-check-rail")).toHaveCSS("background-color", "rgb(15, 118, 110)");
-      await expect(frame.locator("body")).toHaveCSS("background-color", "rgb(250, 244, 232)");
+      await expect(frame.locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(frame.locator(".fee-check-paper")).toHaveCSS("background-color", "rgb(239, 250, 245)");
       expect(await widget.evaluate((node) => node.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(1100);
       await host.screenshot({ path: testInfo.outputPath("fee-check-start.png") });
@@ -504,11 +510,17 @@ test("runtime credentials, widget settings, and production embed management", as
       await expect(countInput).toHaveValue("");
       await expect(feeInput).toHaveValue("");
 
-      await host.setViewportSize({ width: 390, height: 844 });
-      await host.goto(embeddedURL);
-      await expect(statement).toBeVisible();
-      expect(await widget.evaluate((node) => node.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-      await host.screenshot({ path: testInfo.outputPath("fee-check-mobile.png") });
+      for (const width of [320, 390]) {
+        await host.setViewportSize({ width, height: 844 });
+        await host.goto(embeddedURL);
+        await host.locator("iframe").evaluate((iframe) => { iframe.style.height = "780px"; });
+        await statement.locator('[data-action="statement-yes"]').click();
+        await expect(salesInput).toBeInViewport({ ratio: 1 });
+        await expect(countInput).toBeInViewport({ ratio: 1 });
+        await expect(sales.locator("#fee-check-sales-next")).toBeInViewport({ ratio: 1 });
+        expect(await widget.evaluate((node) => node.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+        await host.screenshot({ path: testInfo.outputPath(`fee-check-mobile-${width}.png`) });
+      }
       expect(widgetErrors).toEqual([]);
       await host.close();
     });

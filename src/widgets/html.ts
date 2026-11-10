@@ -21,7 +21,9 @@ export function widgetDocument(title: string, css: string, body: string): string
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
-  <style>${css}</style>
+  <style>${css}
+    html, body { margin: 0; background: transparent; }
+  </style>
 </head>
 <body>${body}</body>
 </html>`;

@@ -1,7 +1,6 @@
 export const feeCheckStyles = `
   *, *::before, *::after { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body { margin: 0; background: var(--widget-background); }
 
   #freedom-fee-check {
     --error: #a82d38;
@@ -23,7 +22,10 @@ export const feeCheckStyles = `
   }
 
   .fee-check-rail {
+    display: flex;
     min-width: 0;
+    flex-direction: column;
+    gap: 24px;
     padding: 28px 24px;
     color: var(--widget-on-accent);
     background: var(--widget-accent);
@@ -33,7 +35,7 @@ export const feeCheckStyles = `
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 0 0 24px;
+    margin: 0;
     font-size: 28px;
     font-weight: 760;
     line-height: 1.08;
@@ -299,31 +301,59 @@ export const feeCheckStyles = `
   .fee-check-footer {
     display: flex;
     align-items: flex-start;
-    justify-content: center;
     gap: 7px;
-    margin: 14px 0 0;
-    color: var(--widget-on-background);
+    margin: 20px 0 0;
+    padding-top: 12px;
+    border-top: 1px solid var(--widget-border);
+    color: var(--widget-on-surface);
     font-size: 13px;
+    line-height: 1.4;
   }
 
   .fee-check-footer svg { flex: 0 0 16px; width: 16px; height: 16px; margin-top: 2px; }
 
-  @media (max-width: 720px) {
+  @media (max-width: 780px) {
     .fee-check-shell { grid-template-columns: minmax(0, 1fr); border-radius: 14px; }
-    .fee-check-rail { padding: 14px 16px 10px; }
-    .fee-check-rail-title { margin-bottom: 11px; font-size: 24px; }
+    .fee-check-rail { gap: 10px; padding: 15px 18px 12px; }
+    .fee-check-rail-title { font-size: 23px; }
     .fee-check-rail-title svg { flex-basis: 20px; width: 20px; height: 20px; }
-    #fee-check-progress { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding-top: 7px; }
-    [data-progress-step] { gap: 5px; padding: 5px; font-size: 12px; line-height: 1.25; }
-    .fee-check-step-number { flex-basis: 20px; width: 20px; height: 20px; font-size: 11px; }
-    .fee-check-paper { min-height: 0; padding: 20px 16px 24px; }
+    #fee-check-progress {
+      width: min(100%, 420px);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 3px;
+      padding: 3px;
+      border: 0;
+      border-radius: 10px;
+      background: color-mix(in srgb, currentColor 12%, transparent);
+    }
+    [data-progress-step] { justify-content: center; gap: 5px; padding: 5px 2px; font-size: 12px; line-height: 1.2; }
+    [data-progress-step][aria-current="step"] { outline: 0; background: color-mix(in srgb, currentColor 18%, transparent); }
+    .fee-check-step-number { flex-basis: 18px; width: 18px; height: 18px; font-size: 10px; }
+    .fee-check-paper { min-height: 0; padding: 22px 18px 18px; }
+  }
+
+  @media (max-width: 480px) {
+    #freedom-fee-check { padding: 8px 8px 12px; }
+    .fee-check-rail { padding: 14px 14px 10px; }
+    .fee-check-paper { padding: 18px 16px 15px; }
+    #fee-check-step-status { margin-bottom: 6px; }
+    [data-panel-heading] { margin-bottom: 8px; font-size: clamp(24px, 6.4vw, 29px); line-height: 1.16; }
+    .fee-check-lead { margin-bottom: 16px; }
+    .fee-check-choice { grid-template-columns: 32px minmax(0, 1fr) 16px; gap: 8px; padding: 10px; }
+    .fee-check-choice-icon { width: 32px; height: 32px; }
+    .fee-check-field { margin: 14px 0; }
+    .fee-check-field label { margin-bottom: 2px; line-height: 1.3; }
+    .fee-check-hint { margin-top: 4px; }
+    .fee-check-input { width: 100%; }
+    .fee-check-prefix { min-width: 36px; }
+    .fee-check-actions { gap: 8px; margin-top: 16px; }
+    .fee-check-actions > .fee-check-button { flex: 1 1 160px; }
+    .fee-check-warning .fee-check-button { width: 100%; }
+    .fee-check-footer { margin-top: 16px; padding-top: 10px; }
   }
 
   @media (max-width: 345px) {
-    [data-progress-step] { gap: 3px; padding-inline: 3px; }
-    .fee-check-choice { grid-template-columns: 30px minmax(0, 1fr) 16px; gap: 8px; padding: 10px; }
-    .fee-check-choice-icon { width: 30px; height: 30px; }
-    .fee-check-choice-copy span { font-size: 13px; }
+    [data-progress-step] { gap: 3px; font-size: 11px; }
     .fee-check-review > div, .fee-check-receipt > div { grid-template-columns: minmax(0, 1fr); }
     .fee-check-review dd, .fee-check-receipt dd { text-align: left; }
   }

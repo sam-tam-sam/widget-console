@@ -41,7 +41,7 @@ function seedLegacyWidget(database: string) {
       ) STRICT;
     `);
     db.prepare("INSERT INTO widget_instances VALUES (?, ?, ?, ?, ?)")
-      .run(widgetId, "freedom-fee-check", "Legacy widget", "{}", Date.now());
+      .run(widgetId, "freedom-fee-check", "Legacy widget", JSON.stringify({ appearance: { background: "#f8f6f2" } }), Date.now());
     for (const { id, origin } of links) {
       db.prepare("INSERT INTO widget_embed_links VALUES (?, ?, ?, 1, ?)")
         .run(id, widgetId, JSON.stringify([origin]), Date.now());

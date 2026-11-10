@@ -19,7 +19,8 @@ export function proxy(request: NextRequest) {
   if (embedPath.test(path)) return NextResponse.next();
 
   const response = NextResponse.next();
-  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
+  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'");
+  response.headers.set("Referrer-Policy", "same-origin");
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");
   if (!path.startsWith("/_next/")) response.headers.set("Cache-Control", "private, no-store");

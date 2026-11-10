@@ -112,7 +112,7 @@ Both checks should return HTTP `200` with `{"status":"ok"}`. Test the sign-in pa
 
 Use the widget's settings page to delete it. Confirming deletion removes that widget and its embed links.
 
-Use **Settings → Appearance** on a supported widget to change its accent, page background, and panel background. Save to apply the colors to this instance's preview and existing embeds. **Reset colors** restores the template palette when you save.
+Use **Settings → Appearance** on a supported widget to change its accent and panel background. The outer iframe background stays transparent so the host page shows through. Save to apply the colors to this instance's preview and existing embeds. **Reset colors** restores the template palette when you save.
 
 ### Fee Check
 
@@ -154,3 +154,5 @@ Give each approved widget its own module under [`src/widgets/`](src/widgets/). I
 For interactive widgets, set `clientScript` to a static, reviewed script from the widget module. The platform includes it in the document and permits only its exact hash in the script policy. Pass validated instance settings as escaped data in the rendered HTML.
 
 To reuse the appearance editor, declare an `appearance` palette on the template and include `widgetAppearanceCss(appearance, configuration)` in the rendered stylesheet. Use the shared `--widget-*` variables in the template's CSS. The dashboard handles color editing and stores overrides with the instance.
+
+Keep the outer widget canvas transparent in previews and embeds. Use `widgetDocument()` for the shared document styles and apply background colors only to content panels and controls. Check each step of an interactive widget at a 320px iframe width and make sure text, fields, and actions fit without horizontal scrolling.

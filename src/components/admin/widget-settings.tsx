@@ -96,7 +96,7 @@ export function WidgetSettings({
           )}
           {appearance && colors && (
             <WidgetAppearanceFields
-              key={`${widget.id}:${colors.accent}:${colors.background}:${colors.surface}`}
+              key={`${widget.id}:${colors.accent}:${colors.surface}`}
               defaults={appearance}
               initial={colors}
             />

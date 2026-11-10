@@ -1,10 +1,9 @@
 export const calculatorStyles = `
   *, *::before, *::after { box-sizing: border-box; }
   [hidden] { display: none !important; }
-  body { margin: 0; background: var(--widget-background); }
   #processing-fee-calculator {
-    --fee-focus: var(--widget-on-background);
-    color: var(--widget-on-background);
+    --fee-focus: var(--widget-focus);
+    color: var(--widget-on-surface);
     font: 16px/1.45 Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
     max-width: 1092px;
     margin: 0 auto;
@@ -21,6 +20,12 @@ export const calculatorStyles = `
     white-space: nowrap;
     border: 0;
   }
+  .fee-entry-panel, .fee-disclaimer {
+    background: var(--widget-surface);
+    border: 1px solid var(--widget-border);
+    border-radius: 16px;
+  }
+  .fee-entry-panel { margin-bottom: 16px; padding: 14px 16px; }
   .fee-top {
     display: grid;
     grid-template-columns: minmax(0, 1.25fr) minmax(0, .75fr) minmax(0, 1fr);
@@ -68,7 +73,7 @@ export const calculatorStyles = `
   .fee-split-cell:last-child { border-radius: 0 13px 13px 0; }
   .fee-split-cell input { width: 3.25ch; text-align: center; }
   .fee-split-labels { margin-top: 5px; text-align: center; }
-  .fee-card-types { margin: -9px 0 30px; }
+  .fee-card-types { margin-top: 10px; }
   .fee-card-types summary, .fee-more-button {
     display: inline-flex;
     align-items: center;
@@ -208,6 +213,7 @@ export const calculatorStyles = `
   #result-note { display: inline; }
   #result-cta { margin-top: 15px; width: auto; }
   .fee-small-print { margin: 10px 0 0; font-size: 13px; }
+  .fee-disclaimer { padding: 10px 12px; }
   #processing-fee-calculator :focus-visible { outline: 2px solid var(--fee-focus); outline-offset: 2px; }
   .fee-input-box input:focus-visible, .fee-split-cell input:focus-visible { outline: 0 !important; }
   @media (min-width: 801px) and (min-height: 700px) {
@@ -219,10 +225,10 @@ export const calculatorStyles = `
     .fee-input-box, .fee-split-inputs { min-height: 61px; }
     .fee-provider-panel { padding: 22px 18px 17px; }
     .fee-provider-panel h2 { margin-bottom: 18px; }
-    .fee-card-types { margin: 12px 0 19px; }
   }
   @media (max-width: 590px) {
     #processing-fee-calculator { padding: 12px; }
+    .fee-entry-panel { margin-bottom: 12px; padding: 10px; }
     .fee-field label, .fee-split-legend { font-size: 14px; line-height: 1.3; }
     .fee-field label { min-height: 2.6em; display: flex; align-items: end; }
     .fee-input-box { padding: 0 10px; }

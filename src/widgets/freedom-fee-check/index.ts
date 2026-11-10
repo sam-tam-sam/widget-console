@@ -8,7 +8,6 @@ import { feeCheckStyles } from "./styles";
 const title = "Fee Check";
 const appearance: WidgetAppearance = {
   accent: "#4a2170",
-  background: "#f8f6f2",
   surface: "#fffefa",
 };
 
@@ -150,9 +149,9 @@ export const freedomFeeCheck: WidgetTemplate = {
           <form id="fee-check-form" novalidate>
             ${start}${sales}${fees}${help(link)}${result(link)}
           </form>
+          <p class="fee-check-footer">${privacyIcon}<span>Your entries stay in this browser tab.</span></p>
         </div>
       </div>
-      <p class="fee-check-footer">${privacyIcon}<span>Your entries stay in this browser tab.</span></p>
     </main>`);
   },
 };

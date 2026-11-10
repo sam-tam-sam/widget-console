@@ -2,7 +2,6 @@ import { WidgetError, type WidgetAppearance, type WidgetConfiguration } from "./
 
 export const widgetAppearanceFields = [
   { key: "accent", label: "Accent color" },
-  { key: "background", label: "Page background" },
   { key: "surface", label: "Panel background" },
 ] as const;
 
@@ -67,17 +66,15 @@ function mix(base: string, tint: string, weight: number) {
 }
 
 export function widgetAppearanceCss(defaults: WidgetAppearance, configuration: WidgetConfiguration) {
-  const { accent, background, surface } = resolveWidgetAppearance(defaults, configuration);
+  const { accent, surface } = resolveWidgetAppearance(defaults, configuration);
   const accentSoft = mix(surface, accent, 0.09);
   const onSurface = readableOn(surface, "#112446");
   const accentInk = readableOn(surface, accent);
 
   return `:root {
     --widget-accent: ${accent};
-    --widget-background: ${background};
     --widget-surface: ${surface};
     --widget-on-accent: ${readableOn(accent, "#ffffff")};
-    --widget-on-background: ${readableOn(background, "#525f7f")};
     --widget-on-surface: ${onSurface};
     --widget-accent-ink: ${accentInk};
     --widget-accent-soft: ${accentSoft};
