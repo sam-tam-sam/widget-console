@@ -61,6 +61,25 @@ networks:
 
 If you set `WIDGET_NETWORK_NAME`, use that value for `networks.widget_console.name` in the connector configuration.
 
+### Allow widget embeds through Cloudflare
+
+If a Cloudflare security rule challenges requests to your app hostname, exempt widget iframe requests before publishing. A Cloudflare challenge page cannot load inside an iframe on another website. [Cloudflare challenge limitations](https://developers.cloudflare.com/cloudflare-challenges/concepts/how-challenges-work/#limitations)
+
+1. In Cloudflare, open **Security → Analytics → Events**. Filter by your app hostname and paths starting with `/embed/`, then open a challenge event to identify the rule. [Security Events](https://developers.cloudflare.com/waf/analytics/security-events/)
+2. If the event points to a custom challenge rule, open that rule under **Security rules → Edit expression**. Wrap its existing expression in parentheses and append the condition below. Replace `widgets.example.com` with the hostname in `WIDGET_PUBLIC_ORIGIN`. Keep the rule action so `/sign-in` still receives its existing protection.
+
+   ```text
+   and not (
+     http.host eq "widgets.example.com"
+     and http.request.method eq "GET"
+     and starts_with(http.request.uri.path, "/embed/")
+     and any(http.request.headers["sec-fetch-dest"][*] eq "iframe")
+     and any(http.request.headers["sec-fetch-mode"][*] eq "navigate")
+   )
+   ```
+
+3. Save the rule and test the embedded widget in a private browser window on a website listed in **Approved origins**. This one-time Cloudflare setting covers future widget links on the same hostname.
+
 ## Verify and troubleshoot
 
 Run the health check from a shell on the Docker host. Use your configured host port if you changed it.
@@ -82,7 +101,7 @@ Both checks should return HTTP `200` with `{"status":"ok"}`. Test the sign-in pa
 | Cloudflare returns `502 Bad Gateway` | For a bridge connector, verify both containers share the app network and the route points to `http://widget-console:3000`. Check the tunnel logs if the error continues. [Cloudflare Tunnel troubleshooting](https://developers.cloudflare.com/tunnel/troubleshooting/) |
 | `/sign-in` returns `404` | Open the HTTPS hostname in `WIDGET_PUBLIC_ORIGIN` and verify that the tunnel preserves the `Host` header. A direct visit to `localhost:3100/sign-in` returns `404` with the standard public hostname configuration. |
 | The health check returns `503` | Check the HTTPS origin, administrator variables, and whether the container can write to the SQLite volume. |
-| An iframe is blank | Open the page on the approved website. Check the widget's exact approved origin, link status, and the iframe URL. |
+| An iframe is blank or says `refused to connect` | Check the widget's exact approved origin, link status, and iframe URL. If Cloudflare challenged the request, follow [Allow widget embeds through Cloudflare](#allow-widget-embeds-through-cloudflare). |
 
 ## Manage widgets
 
