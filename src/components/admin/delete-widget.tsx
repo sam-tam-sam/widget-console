@@ -4,12 +4,19 @@ import { Trash2 } from "lucide-react";
 import { deleteInstanceAction } from "@/app/(admin)/admin/actions";
 import { ConfirmAction } from "@/components/admin/confirm-action";
 
-export function DeleteWidget({ id, name, linkCount }: { id: string; name: string; linkCount: number }) {
+export function DeleteWidget({ id, name, linkCount, compact }: {
+  id: string;
+  name: string;
+  linkCount: number;
+  compact?: boolean;
+}) {
   return (
     <ConfirmAction
       action={deleteInstanceAction}
-      label="Delete widget"
-      destructive
+      label={compact ? "Delete" : "Delete widget"}
+      trigger={compact
+        ? { variant: "ghost", ariaLabel: `Delete widget ${name}`, className: "console-widget-delete" }
+        : { variant: "destructive" }}
       icon={<Trash2 aria-hidden="true" />}
       confirmation={{
         title: "Delete widget?",

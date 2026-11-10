@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ArrowRight, Blocks, CircleCheck, Plus } from "lucide-react";
+import { DeleteWidget } from "@/components/admin/delete-widget";
 import { AdminShell } from "@/components/admin/shell";
 import { Button } from "@/components/ui/button";
 import { requireAdmin } from "@/lib/auth";
@@ -61,7 +62,7 @@ export default async function WidgetsPage({
             {instances.map((widget) => {
               const counts = linkCounts.get(widget.id);
               return (
-                <li key={widget.id}>
+                <li key={widget.id} className="console-widget-record">
                   <Link
                     href={`/admin/widgets/${widget.id}`}
                     className="console-widget-row"
@@ -80,6 +81,7 @@ export default async function WidgetsPage({
                       <span>Open</span><ArrowRight size={16} />
                     </span>
                   </Link>
+                  <DeleteWidget id={widget.id} name={widget.name} linkCount={counts?.total ?? 0} compact />
                 </li>
               );
             })}

@@ -107,12 +107,12 @@ Both checks should return HTTP `200` with `{"status":"ok"}`. Test the sign-in pa
 
 1. Choose **New widget**, select a registered template, and save. The new widget opens on its own settings page.
 2. Open **Preview** to try the saved widget at **320px**, **390px**, or the full available width. The admin preview works with an empty list of approved origins.
-3. In **Settings → Approved origins**, enter one exact HTTPS origin per line, such as `https://example.com`, and save. Add `https://www.example.com` separately if both hostnames serve the page. An empty saved list blocks public embedding for that widget.
+3. Open the widget's **Approved origins** tab, enter one exact HTTPS origin per line, and save. Add `https://example.com` and `https://www.example.com` on separate lines if both hostnames serve the page. An empty saved list blocks public embedding for that widget.
 4. Open **Embed links → Create embed link**, then copy the generated iframe markup into a page on an approved website. Verify it on that page.
 
 Each widget generates one embed link. If the widget already has a link, **Create embed link** opens a confirmation. Confirming replaces all existing links for that widget with one new link. Update the embed code on each page that uses it. Links issued by older versions continue to work until you replace or disable them.
 
-Use the widget's settings page to delete it. Confirming deletion removes that widget and its embed links.
+Delete a widget from the dashboard list or from its **Settings** tab. Confirming deletion removes the widget and its embed links.
 
 Use **Style** on a supported widget to change its accent and panel background. The outer iframe background stays transparent so the host page shows through. Save to apply the colors to this instance's preview and existing embeds. **Reset colors** restores the template palette when you save.
 
@@ -159,7 +159,7 @@ Give each approved widget its own module under [`src/widgets/`](src/widgets/). I
 
 For interactive widgets, set `clientScript` to a static, reviewed script from the widget module. The platform includes it in the document and permits only its exact hash in the script policy. Pass validated instance settings as escaped data in the rendered HTML.
 
-Use `configurationFields` for template settings and group related fields with `section`. The shared dashboard renders those fields and owns Style, Size, Preview, approved origins, and embed links. Use the existing admin form, status, and input components when extending those controls.
+Use `configurationFields` for template settings and group related fields with `section`. The shared dashboard renders those fields and owns Style, Size, Preview, Approved origins, and Embed links. Use the existing admin form, status, and input components when extending those controls.
 
 To reuse the appearance editor, declare an `appearance` palette on the template and include `widgetAppearanceCss(appearance, configuration)` in the rendered stylesheet. Use the shared `--widget-*` variables in the template's CSS. The dashboard stores color and size overrides with each instance. Reserve `appearance` and `embedHeights` for the platform, and keep the template validator focused on widget-specific settings.
 

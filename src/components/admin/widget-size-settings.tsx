@@ -27,7 +27,7 @@ export function WidgetSizeSettings({ widget, template }: { widget: WidgetInstanc
           <input type="hidden" name="id" value={widget.id} />
           <fieldset className="console-setting-group">
             <legend>Height in pixels</legend>
-            <div className="console-setting-grid">
+            <div className="console-setting-grid console-size-grid">
               {widgetEmbedProfiles.map(({ key, label, description }) => {
                 const id = `widget-height-${key}`;
                 return (

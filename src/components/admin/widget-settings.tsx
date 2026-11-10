@@ -49,7 +49,6 @@ export function WidgetSettings({
     fields.push(field);
     sections.set(section, fields);
   }
-  const approvedOrigins = widget.approvedOrigins?.join("\n") ?? "";
   const templateConfiguration = { ...widget.configuration };
   delete templateConfiguration.appearance;
   delete templateConfiguration.embedHeights;
@@ -97,7 +96,23 @@ export function WidgetSettings({
           )}
         </AdminForm>
       </section>
-      <section id="widget-approved-origins" className="console-panel console-form-panel" aria-labelledby="widget-approved-origins-heading">
+      <section className="console-panel console-form-panel console-danger" aria-labelledby="delete-widget-heading">
+        <div>
+          <h2 id="delete-widget-heading">Delete this widget</h2>
+          <p>Permanently remove this widget and its embed links.</p>
+        </div>
+        <DeleteWidget id={widget.id} name={widget.name} linkCount={linkCount} />
+      </section>
+    </div>
+  );
+}
+
+export function WidgetOriginsSettings({ widget, linkCount }: { widget: WidgetInstance; linkCount: number }) {
+  const approvedOrigins = widget.approvedOrigins?.join("\n") ?? "";
+
+  return (
+    <div className="console-editor">
+      <section className="console-panel console-form-panel" aria-labelledby="widget-approved-origins-heading">
         <div className="console-section-heading">
           <h2 id="widget-approved-origins-heading">Approved origins</h2>
           <p>The saved list applies to every embed link for this widget.</p>
@@ -124,13 +139,6 @@ export function WidgetSettings({
             <small id="widget-approved-origins-help">Enter one HTTPS origin per line, including its port if present. An empty list blocks embedding. You can still preview the widget in the dashboard.</small>
           </div>
         </AdminForm>
-      </section>
-      <section className="console-panel console-form-panel console-danger" aria-labelledby="delete-widget-heading">
-        <div>
-          <h2 id="delete-widget-heading">Delete this widget</h2>
-          <p>Permanently remove this widget and its embed links.</p>
-        </div>
-        <DeleteWidget id={widget.id} name={widget.name} linkCount={linkCount} />
       </section>
     </div>
   );

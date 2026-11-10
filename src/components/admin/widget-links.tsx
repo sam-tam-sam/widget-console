@@ -79,7 +79,7 @@ export function WidgetLinks({ widget, links, template }: {
   template?: WidgetTemplateSummary;
 }) {
   const origin = applicationOrigin()?.origin ?? null;
-  const settings = `/admin/widgets/${encodeURIComponent(widget.id)}#widget-approved-origins`;
+  const originsPath = `/admin/widgets/${encodeURIComponent(widget.id)}?tab=origins`;
   const heights = resolveWidgetEmbedHeights(template, widget.configuration.embedHeights);
   const current = links[0];
 
@@ -90,7 +90,7 @@ export function WidgetLinks({ widget, links, template }: {
           <span className="console-instance-icon"><Plus size={17} aria-hidden="true" /></span>
           <h2 id="new-link-title">Publish this widget</h2>
         </div>
-        <p className="console-empty-note">Choose which sites can display this widget in <Link href={settings} className="underline">Approved origins</Link>.</p>
+        <p className="console-empty-note">Choose which sites can display this widget in <Link href={originsPath} className="underline">Approved origins</Link>.</p>
         <ConfirmAction
           action={createLinkAction}
           label="Create embed link"

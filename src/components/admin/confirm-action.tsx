@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type ReactNode, type Ref } from "react";
+import { useId, useRef, useState, type ComponentProps, type ReactNode, type Ref } from "react";
 import { useFormStatus } from "react-dom";
 import type { FormResult } from "@/app/(admin)/admin/actions";
 import { AdminForm, FormMessage } from "@/components/admin/form";
@@ -16,14 +16,14 @@ type ConfirmActionProps = {
   label: string;
   children: ReactNode;
   confirmation?: { title: string; description: ReactNode; label: string };
-  destructive?: boolean;
+  trigger?: { variant?: ComponentProps<typeof Button>["variant"]; ariaLabel?: string; className?: string };
   icon?: ReactNode;
 };
 
-export function ConfirmAction({ action, label, children, confirmation, destructive, icon }: ConfirmActionProps) {
+export function ConfirmAction({ action, label, children, confirmation, trigger, icon }: ConfirmActionProps) {
   const [result, setResult] = useState<FormResult>({});
   const dialog = useRef<HTMLDialogElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const headingId = useId();
   const descriptionId = useId();
@@ -46,15 +46,22 @@ export function ConfirmAction({ action, label, children, confirmation, destructi
     <>
       {confirmation ? (
         <>
-          <Button ref={trigger} type="button" variant={destructive ? "destructive" : "default"} onClick={open}>
-            {icon}{label}
+          <Button
+            ref={triggerRef}
+            type="button"
+            variant={trigger?.variant}
+            aria-label={trigger?.ariaLabel}
+            className={trigger?.className}
+            onClick={open}
+          >
+            {icon}<span>{label}</span>
           </Button>
           <dialog
             ref={dialog}
             className="console-confirm-dialog"
             aria-labelledby={headingId}
             aria-describedby={descriptionId}
-            onClose={() => trigger.current?.focus()}
+            onClose={() => triggerRef.current?.focus()}
             onCancel={(event) => {
               if (event.currentTarget.querySelector('form[aria-busy="true"]')) event.preventDefault();
             }}

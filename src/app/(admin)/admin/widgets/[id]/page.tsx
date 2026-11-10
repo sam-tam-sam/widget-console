@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Eye, Link2, Paintbrush, Ruler, Settings } from "lucide-react";
+import { ArrowLeft, Eye, Link2, Paintbrush, Ruler, Settings, ShieldCheck } from "lucide-react";
 import { AdminShell } from "@/components/admin/shell";
 import { WidgetLinks } from "@/components/admin/widget-links";
 import { WidgetPreview } from "@/components/admin/widget-preview";
-import { WidgetSettings, WidgetStyleSettings } from "@/components/admin/widget-settings";
+import { WidgetOriginsSettings, WidgetSettings, WidgetStyleSettings } from "@/components/admin/widget-settings";
 import { WidgetSizeSettings } from "@/components/admin/widget-size-settings";
 import { requireAdmin } from "@/lib/auth";
 import { getInstance, listLinks, listTemplates } from "@/lib/widgets";
@@ -15,6 +15,7 @@ const sections = [
   { key: "style", label: "Style", query: "?tab=style", icon: Paintbrush },
   { key: "size", label: "Size", query: "?tab=size", icon: Ruler },
   { key: "preview", label: "Preview", query: "?tab=preview", icon: Eye },
+  { key: "origins", label: "Approved origins", query: "?tab=origins", icon: ShieldCheck },
   { key: "links", label: "Embed links", query: "?tab=links", icon: Link2 },
 ] as const;
 
@@ -49,6 +50,9 @@ export default async function WidgetPage({
     case "preview":
       content = <WidgetPreview instanceId={widget.id} />;
       break;
+    case "origins":
+      content = <WidgetOriginsSettings widget={widget} linkCount={links.length} />;
+      break;
     case "links":
       content = <WidgetLinks widget={widget} links={links} template={template} />;
       break;
@@ -67,7 +71,12 @@ export default async function WidgetPage({
       </header>
       <nav className="console-widget-tabs" aria-label="Widget sections">
         {availableSections.map(({ key, label, query, icon: Icon }) => (
-          <Link key={key} href={path + query} aria-current={section === key ? "page" : undefined}>
+          <Link
+            key={key}
+            id={key === "origins" ? "widget-approved-origins" : undefined}
+            href={path + query}
+            aria-current={section === key ? "page" : undefined}
+          >
             <Icon size={16} aria-hidden="true" />
             {label}
           </Link>

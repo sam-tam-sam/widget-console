@@ -37,11 +37,23 @@ async function createWidget(page: Page, template: string, name: string) {
 }
 
 async function saveApprovedOrigins(page: Page, ...origins: string[]) {
+  await page.getByRole("navigation", { name: "Widget sections" }).getByRole("link", { name: "Approved origins", exact: true }).click();
+  await expect(page).toHaveURL(/\?tab=origins$/);
   await page.getByRole("textbox", { name: "Approved origins", exact: true }).fill(origins.join("\n"));
   const save = page.waitForResponse((response) => response.request().method() === "POST" && response.url() === page.url());
   await page.getByRole("button", { name: "Save approved origins", exact: true }).click();
   expect((await save).ok()).toBe(true);
   await expect(page.getByRole("status").filter({ hasText: "Approved origins saved." })).toBeVisible();
+}
+
+async function expectAlignedFields(page: Page, ...labels: string[]) {
+  const boxes = await Promise.all(labels.map((name) =>
+    page.getByLabel(name, { exact: true }).evaluate((field) => {
+      const { top, width, height } = field.getBoundingClientRect();
+      return { top: Math.round(top), width: Math.round(width), height: Math.round(height) };
+    }),
+  ));
+  for (const box of boxes.slice(1)) expect(box).toEqual(boxes[0]);
 }
 
 async function currentLink(page: Page) {
@@ -186,7 +198,6 @@ test("runtime credentials, widget settings, and production embed management", as
       await createWidget(page, "processing-fee-calculator", "Site details");
       const detailsPreview = page.frameLocator('iframe[title="Widget preview"]');
       await expect(detailsPreview.getByRole("button", { name: "Calculate savings" })).toBeVisible();
-      await page.getByRole("link", { name: "Settings", exact: true }).click();
       await saveApprovedOrigins(page, approvedOrigin);
       await page.getByRole("link", { name: "Embed links", exact: true }).click();
       await expect(page).toHaveURL(/\?tab=links$/);
@@ -194,8 +205,8 @@ test("runtime credentials, widget settings, and production embed management", as
 
       await page.goto("/admin");
       await expect(page.getByRole("heading", { name: "Widgets", exact: true })).toBeVisible();
-      await expect(page.getByText("Site details", { exact: true })).toBeVisible();
-      await expect(page.getByText("Site notice", { exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open Site details", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open Site notice", exact: true })).toBeVisible();
       await page.getByRole("link", { name: "Open Site notice", exact: true }).click();
       await expect(page.getByRole("heading", { name: "Site notice", exact: true })).toBeVisible();
       await expect(page.getByLabel("Widget name", { exact: true })).toHaveValue("Site notice");
@@ -225,7 +236,8 @@ test("runtime credentials, widget settings, and production embed management", as
       expect(emptyPolicy).toContain("connect-src 'none'");
       await expectFrameBlocked(host, approvedOrigin, first.id);
 
-      await page.getByRole("link", { name: "Settings", exact: true }).click();
+      await page.locator(".console-tab-content").getByRole("link", { name: "Approved origins", exact: true }).click();
+      await expect(page).toHaveURL(/\?tab=origins$/);
       await saveApprovedOrigins(page, approvedOrigin);
       await host.goto(`${approvedOrigin}/${first.id}`);
       const embeddedWidget = host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" });
@@ -235,6 +247,7 @@ test("runtime credentials, widget settings, and production embed management", as
       await page.getByRole("link", { name: "Size", exact: true }).click();
       const compactHeight = page.getByLabel("320px height", { exact: true });
       const mobileHeight = page.getByLabel("390px height", { exact: true });
+      await expectAlignedFields(page, "320px height", "390px height", "Wide height");
       await expect(compactHeight).toHaveAttribute("placeholder", "820");
       await expect(mobileHeight).toHaveAttribute("placeholder", "780");
       await compactHeight.evaluate((input) => input.closest("form")?.setAttribute("novalidate", ""));
@@ -275,7 +288,6 @@ test("runtime credentials, widget settings, and production embed management", as
       await page.reload();
       await expect(compactHeight).toHaveValue("");
       await expect(mobileHeight).toHaveValue("800");
-      await page.getByRole("link", { name: "Settings", exact: true }).click();
       await expectFrameBlocked(host, otherOrigin, first.id);
 
       await host.goto(`${approvedOrigin}/${details.id}`);
@@ -332,10 +344,10 @@ test("runtime credentials, widget settings, and production embed management", as
       await replacement.row.getByRole("button", { name: "Enable link", exact: true }).click();
       await expect(replacement.row.getByText("Enabled", { exact: true })).toBeVisible();
 
-      await page.getByRole("link", { name: "Settings", exact: true }).click();
       await saveApprovedOrigins(page);
       expect(await embedPolicy(visitor, replacement.id)).toContain("frame-ancestors 'none'");
-      const deleteButton = page.getByRole("button", { name: "Delete widget", exact: true });
+      await page.goto("/admin");
+      const deleteButton = page.getByRole("button", { name: "Delete widget Site notice", exact: true });
       await deleteButton.click();
       const confirmation = page.getByRole("dialog", { name: "Delete widget?" });
       await expect(confirmation).toBeVisible();
@@ -343,15 +355,15 @@ test("runtime credentials, widget settings, and production embed management", as
       const cancel = confirmation.getByRole("button", { name: "Cancel", exact: true });
       await expect(cancel).toBeFocused();
       await cancel.click();
-      await expect(confirmation).toHaveCount(0);
+      await expect(confirmation).toBeHidden();
       await expect(deleteButton).toBeFocused();
-      await expect(page.getByRole("heading", { name: "Site notice", exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open Site notice", exact: true })).toBeVisible();
       await deleteButton.click();
       await confirmation.getByRole("button", { name: "Delete widget", exact: true }).click();
       await expect(page).toHaveURL(/\/admin\?deleted=1$/);
       await expect(page.getByText("Widget deleted.", { exact: true })).toBeVisible();
-      await expect(page.getByText("Site notice", { exact: true })).toHaveCount(0);
-      await expect(page.getByText("Site details", { exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open Site notice", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Open Site details", exact: true })).toBeVisible();
       expect((await requestAt(visitor, replacementURL, iframeNavigation)).status()).toBe(404);
       expect((await page.goto(noticePath))?.status()).toBe(404);
       await host.goto(`${approvedOrigin}/${details.id}`);
@@ -368,13 +380,14 @@ test("runtime credentials, widget settings, and production embed management", as
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
         expect(await page.locator(".console-sidebar").evaluate((sidebar) => sidebar.clientHeight)).toBeLessThan(160);
         await expect(page.getByRole("link", { name: "New widget", exact: true })).toBeInViewport();
+        await expect(page.getByRole("button", { name: "Delete widget Site details", exact: true })).toBeInViewport();
       }
       await page.screenshot({ path: testInfo.outputPath("dashboard-mobile.png"), fullPage: true });
       await page.setViewportSize({ width: 320, height: 844 });
       await page.getByRole("link", { name: "Open Site details", exact: true }).click();
       const sections = page.getByRole("navigation", { name: "Widget sections" });
       await expect(sections.getByRole("link", { name: "Settings", exact: true })).toHaveAttribute("aria-current", "page");
-      for (const name of ["Settings", "Style", "Size", "Preview", "Embed links"]) {
+      for (const name of ["Settings", "Style", "Size", "Preview", "Embed links", "Approved origins"]) {
         const section = sections.getByRole("link", { name, exact: true });
         await expect(section).toBeInViewport({ ratio: 1 });
         expect(await section.evaluate((node) => node.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
@@ -402,6 +415,7 @@ test("runtime credentials, widget settings, and production embed management", as
       await page.getByLabel("Online fee per transaction ($)", { exact: true }).fill("0.20");
       await page.getByLabel("Monthly plan fee ($)", { exact: true }).fill("20");
       const destination = "https://example.com/request-a-quote";
+      await expectAlignedFields(page, "Conversion URL", "Conversion button label");
       await page.getByLabel("Conversion URL", { exact: true }).fill(destination);
       await page.getByLabel("Conversion button label", { exact: true }).fill("Request my quote");
       await page.getByRole("button", { name: "Save settings", exact: true }).click();
