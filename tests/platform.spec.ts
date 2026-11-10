@@ -1,0 +1,460 @@
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import { randomBytes } from "node:crypto";
+import { adminOrigin, approvedOrigin, backendOrigin, embedOrigin, otherOrigin, startPlatform } from "./platform-server";
+
+const iframeNavigation = { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate" };
+
+function requestAt(context: BrowserContext, url: string, headers?: Record<string, string>) {
+  const address = new URL(url);
+  return context.request.get(backendOrigin + address.pathname + address.search, {
+    headers: { Host: address.host, "X-Forwarded-Host": address.host, "X-Forwarded-Proto": "https", ...headers },
+    maxRedirects: 0,
+  });
+}
+
+async function signIn(page: Page, username: string, password: string) {
+  await page.getByLabel("Username", { exact: true }).fill(username);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+}
+
+async function createWidget(page: Page, template: string, name: string) {
+  await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Widgets", exact: true })).toBeVisible();
+  await page.getByRole("link", { name: "New widget", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/widgets\/new$/);
+  await page.getByLabel("Template", { exact: true }).selectOption(template);
+  await page.getByLabel("Widget name", { exact: true }).fill(name);
+  await page.getByRole("button", { name: "Create widget", exact: true }).click();
+  await expect(page).toHaveURL(/\/admin\/widgets\/[a-f0-9-]+$/);
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+
+  const path = new URL(page.url()).pathname;
+  await page.getByRole("link", { name: "Preview", exact: true }).click();
+  await expect(page).toHaveURL(/\?tab=preview$/);
+  return path;
+}
+
+async function createLink(page: Page, origin: string) {
+  const existing = await page.locator("[data-link-id]").evaluateAll((items) =>
+    items.map((item) => item.getAttribute("data-link-id")),
+  );
+  const createButton = page.getByRole("button", { name: "Create embed link", exact: true });
+  const form = page.locator("form").filter({ has: createButton });
+  await form.getByLabel("Approved origins", { exact: true }).fill(origin);
+  await createButton.click();
+  const added = page.locator(`[data-link-id]${existing.map((id) => `:not([data-link-id="${id}"])`).join("")}`);
+  await expect(added).toHaveCount(1);
+  const id = await added.getAttribute("data-link-id");
+  if (!id) throw new Error("The new embed link has no ID.");
+  return { id, row: page.locator(`[data-link-id="${id}"]`) };
+}
+
+test("runtime credentials, widget settings, and production embed management", async ({ page, browser }, testInfo) => {
+  const initial = { username: "widget-test-owner", password: randomBytes(24).toString("base64url") };
+  const rotated = { username: "widget-test-rotated", password: randomBytes(24).toString("base64url") };
+  const platform = await startPlatform(initial);
+  const visitor = await browser.newContext({ baseURL: adminOrigin, ignoreHTTPSErrors: true });
+  try {
+    await test.step("protect the dashboard and sign in with runtime credentials", async () => {
+      expect((await requestAt(visitor, `${embedOrigin}/admin`)).status()).toBe(404);
+      expect((await visitor.request.get(`${backendOrigin}/admin`)).status()).toBe(404);
+      await page.goto("/admin");
+      await expect(page).toHaveURL(/\/sign-in$/);
+      await signIn(page, "admin", "123456");
+      await expect(page.getByText("The username or password is incorrect.")).toBeVisible();
+      await signIn(page, initial.username, initial.password);
+      await expect(page).toHaveURL(/\/admin$/);
+      expect(await page.context().cookies(adminOrigin)).toContainEqual(expect.objectContaining({
+        name: "widget_admin_session", secure: true, httpOnly: true,
+      }));
+      expect(await page.context().cookies(embedOrigin)).not.toContainEqual(expect.objectContaining({ name: "widget_admin_session" }));
+    });
+
+    await test.step("revoke prior sessions when runtime credentials change", async () => {
+      await platform.restart(initial);
+      await page.goto("/admin");
+      await expect(page).toHaveURL(/\/admin$/);
+      await platform.restart(rotated);
+      await page.goto("/admin");
+      await expect(page).toHaveURL(/\/sign-in$/);
+      await signIn(page, initial.username, initial.password);
+      await expect(page.getByText("The username or password is incorrect.")).toBeVisible();
+      await signIn(page, rotated.username, rotated.password);
+      await expect(page).toHaveURL(/\/admin$/);
+    });
+
+    await test.step("create, preview, publish, and remove widgets independently", async () => {
+      const noticePath = await createWidget(page, "freedom-fee-check", "Site notice");
+      await expect(page.frameLocator('iframe[title="Widget preview"]').getByRole("heading", { name: "Fee Check" })).toBeVisible();
+      const privatePreview = await requestAt(visitor, `${adminOrigin}${noticePath}?tab=preview`);
+      expect(privatePreview.headers().location).toMatch(/\/sign-in$/);
+      await createWidget(page, "processing-fee-calculator", "Site details");
+      const detailsPreview = page.frameLocator('iframe[title="Widget preview"]');
+      await expect(detailsPreview.getByRole("button", { name: "Calculate savings" })).toBeVisible();
+      await page.getByRole("link", { name: "Embed links", exact: true }).click();
+      await expect(page).toHaveURL(/\?tab=links$/);
+      const details = await createLink(page, approvedOrigin);
+
+      await page.goto("/admin");
+      await expect(page.getByRole("heading", { name: "Widgets", exact: true })).toBeVisible();
+      await expect(page.getByText("Site details", { exact: true })).toBeVisible();
+      await expect(page.getByText("Site notice", { exact: true })).toBeVisible();
+      await page.getByRole("link", { name: "Open Site notice", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Site notice", exact: true })).toBeVisible();
+      await expect(page.getByLabel("Widget name", { exact: true })).toHaveValue("Site notice");
+      await page.getByRole("link", { name: "Embed links", exact: true }).click();
+      await expect(page).toHaveURL(/\?tab=links$/);
+      await expect(page.locator("[data-link-id]")).toHaveCount(0);
+
+      const first = await createLink(page, approvedOrigin);
+      const second = await createLink(page, otherOrigin);
+      const embedURL = `${embedOrigin}/embed/${first.id}`;
+      await first.row.getByText("View iframe code", { exact: true }).click();
+      await expect(first.row.getByLabel("Embed code")).toHaveValue(new RegExp(embedURL));
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      await first.row.getByRole("button", { name: "Copy embed code" }).click();
+      await expect(first.row.getByRole("status")).toHaveText("Copied");
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(embedURL);
+
+      await expect(page.getByRole("button", { name: "Use local test site", exact: true })).toHaveCount(0);
+      await expect(first.row.getByRole("button", { name: "Test locally", exact: true })).toHaveCount(0);
+
+      const host = await visitor.newPage();
+      const direct = await host.goto(embedURL);
+      expect(direct?.status()).toBe(403);
+      await host.goto(`${approvedOrigin}/${first.id}`);
+      await expect(host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" })).toBeVisible();
+      const violation = host.waitForEvent("console", {
+        predicate: (entry) => entry.text().includes("frame-ancestors"),
+        timeout: 5000,
+      });
+      await host.goto(`${otherOrigin}/${first.id}`);
+      await violation;
+      await host.goto(`${otherOrigin}/${second.id}`);
+      await expect(host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" })).toBeVisible();
+
+      await host.goto(`${approvedOrigin}/${details.id}`);
+      await expect(host.frameLocator("iframe").getByRole("button", { name: "Calculate savings" })).toBeVisible();
+
+      await first.row.getByText("Manage link", { exact: true }).click();
+      await first.row.getByLabel("Approved origins").fill(otherOrigin);
+      await first.row.getByRole("button", { name: "Save changes" }).click();
+      await expect.poll(async () =>
+        (await requestAt(visitor, embedURL, iframeNavigation)).headers()["content-security-policy"],
+      ).toContain(`frame-ancestors ${otherOrigin}`);
+      await expect(first.row.getByLabel("Embed code")).toHaveValue(new RegExp(embedURL));
+
+      await first.row.getByText("Disable link", { exact: true }).click();
+      await first.row.getByRole("button", { name: "Confirm disable" }).click();
+      await expect(first.row.getByText("Disabled", { exact: true })).toBeVisible();
+      expect((await requestAt(visitor, embedURL, iframeNavigation)).status()).toBe(404);
+      await host.goto(`${otherOrigin}/${second.id}`);
+      await expect(host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" })).toBeVisible();
+
+      await page.getByRole("link", { name: "Settings", exact: true }).click();
+      const deleteButton = page.getByRole("button", { name: "Delete widget", exact: true });
+      await deleteButton.click();
+      const confirmation = page.getByRole("dialog", { name: "Delete widget?" });
+      await expect(confirmation).toBeVisible();
+      await expect(confirmation).toContainText("All 2 embed links will stop working.");
+      const cancel = confirmation.getByRole("button", { name: "Cancel", exact: true });
+      await expect(cancel).toBeFocused();
+      await cancel.click();
+      await expect(confirmation).toHaveCount(0);
+      await expect(deleteButton).toBeFocused();
+      await expect(page.getByRole("heading", { name: "Site notice", exact: true })).toBeVisible();
+      await deleteButton.click();
+      await confirmation.getByRole("button", { name: "Delete widget", exact: true }).click();
+      await expect(page).toHaveURL(/\/admin\?deleted=1$/);
+      await expect(page.getByText("Widget deleted.", { exact: true })).toBeVisible();
+      await expect(page.getByText("Site notice", { exact: true })).toHaveCount(0);
+      await expect(page.getByText("Site details", { exact: true })).toBeVisible();
+      for (const id of [first.id, second.id]) {
+        expect((await requestAt(visitor, `${embedOrigin}/embed/${id}`, iframeNavigation)).status()).toBe(404);
+      }
+      expect((await page.goto(noticePath))?.status()).toBe(404);
+      await host.goto(`${approvedOrigin}/${details.id}`);
+      await expect(host.frameLocator("iframe").getByRole("button", { name: "Calculate savings" })).toBeVisible();
+      await page.goto("/admin");
+      await page.getByRole("link", { name: "Open Site details", exact: true }).click();
+      await expect(page.getByRole("heading", { name: "Site details", exact: true })).toBeVisible();
+
+      await page.goto("/admin");
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await page.screenshot({ path: testInfo.outputPath("dashboard.png"), fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+      expect(await page.locator(".console-sidebar").evaluate((sidebar) => sidebar.clientHeight)).toBeLessThan(160);
+      await page.screenshot({ path: testInfo.outputPath("dashboard-mobile.png"), fullPage: true });
+      await host.close();
+    });
+
+    await test.step("configure and verify the processing fee calculator", async () => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await createWidget(page, "processing-fee-calculator", "Fee comparison");
+      const preview = page.frameLocator('iframe[title="Widget preview"]');
+      await preview.getByRole("button", { name: "Calculate savings", exact: true }).click();
+      await expect(preview.locator("#result-current-cost")).toHaveText("$3,325.00");
+      await expect(preview.locator("#result-plan-missing")).toBeVisible();
+      await expect(preview.locator("#result-projection")).toBeHidden();
+
+      await page.getByRole("link", { name: "Settings", exact: true }).click();
+      await page.getByLabel("Proposed plan name", { exact: true }).fill("Test plan");
+      await page.getByLabel("In-person rate (%)", { exact: true }).fill("2");
+      await page.getByLabel("In-person fee per transaction ($)", { exact: true }).fill("0.10");
+      await page.getByLabel("Online rate (%)", { exact: true }).fill("2.5");
+      await page.getByLabel("Online fee per transaction ($)", { exact: true }).fill("0.20");
+      await page.getByLabel("Monthly plan fee ($)", { exact: true }).fill("20");
+      await page.getByLabel("Accent color", { exact: true }).fill("#193a71");
+      const destination = "https://example.com/request-a-quote";
+      await page.getByLabel("Conversion URL", { exact: true }).fill(destination);
+      await page.getByLabel("Conversion button label", { exact: true }).fill("Request my quote");
+      await page.getByRole("button", { name: "Save settings", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: /saved/i })).toBeVisible();
+      await page.getByRole("link", { name: "Embed links", exact: true }).click();
+      await expect(page).toHaveURL(/\?tab=links$/);
+      const calculatorLink = await createLink(page, approvedOrigin);
+
+      const host = await visitor.newPage();
+      await host.setViewportSize({ width: 1092, height: 1000 });
+      const embeddedUrl = `${approvedOrigin}/${calculatorLink.id}`;
+      const widgetErrors: string[] = [];
+      host.on("pageerror", (error) => widgetErrors.push(error.message));
+      host.on("console", (entry) => {
+        if (entry.type() === "error") widgetErrors.push(entry.text());
+      });
+      await host.goto(embeddedUrl);
+      const calculator = host.frameLocator('iframe[title="Embedded fixture"]');
+      await expect(calculator.locator("#calculate-button")).toHaveCSS("background-color", "rgb(25, 58, 113)");
+      const square = calculator.getByRole("button", { name: "Square", exact: true });
+      const logo = square.locator("img");
+      await expect(logo).toHaveAttribute("src", /^data:image\/svg\+xml;base64,/);
+      await expect.poll(() =>
+        logo.evaluate((image) => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0),
+      ).toBe(true);
+      const thumbnails = calculator.locator('.fee-provider-grid:not([hidden]) img');
+      await expect(thumbnails).toHaveCount(18);
+      await expect.poll(() => thumbnails.evaluateAll((images) => images.every((image) =>
+        image instanceof HTMLImageElement && image.src.startsWith("data:image/") && image.complete && image.naturalWidth > 0,
+      ))).toBe(true);
+      await host.screenshot({ path: testInfo.outputPath("calculator-desktop.png") });
+
+      await square.click();
+      await calculator.getByRole("button", { name: "Calculate savings", exact: true }).click();
+      await expect(calculator.locator("#result-current-cost")).toHaveText("$2,237.50");
+      await expect(calculator.locator("#result-proposed-cost")).toHaveText("$1,645.00");
+      await expect(calculator.locator("#result-monthly-difference")).toHaveText("+$592.50");
+      await expect(calculator.locator("#result-annual-difference")).toHaveText("+$7,110.00");
+      const conversionLink = calculator.getByRole("link", { name: "Request my quote", exact: true });
+      await expect(conversionLink).toHaveAttribute("href", destination);
+      await expect(conversionLink).toHaveAttribute("target", "_blank");
+      await visitor.route(destination, (route) => route.fulfill({ body: "Quote page" }));
+      const openingQuote = visitor.waitForEvent("page");
+      await conversionLink.click();
+      const quote = await openingQuote;
+      await expect(quote).toHaveURL(destination);
+      await quote.close();
+
+      await host.goto(embeddedUrl);
+      await calculator.getByRole("button", { name: "Enter Custom", exact: true }).click();
+      const dialog = calculator.getByRole("dialog", { name: "Your Current Monthly Costs" });
+      await dialog.getByLabel("Name of Provider", { exact: true }).fill("My current provider");
+      await dialog.locator("#monthly-cost").fill("133");
+      await expect(dialog.locator("#cost-warning")).toContainText("below 1.5%");
+      await host.screenshot({ path: testInfo.outputPath("calculator-dialog.png") });
+      await dialog.getByRole("button", { name: "Set Costs", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await calculator.getByRole("button", { name: "Calculate savings", exact: true }).click();
+      await expect(calculator.locator("#result-current-cost")).toHaveText("$133.00");
+      await expect(calculator.locator("#result-current-effective")).toHaveText(/^0\.27%/);
+      await expect(calculator.locator("#result-monthly-difference")).toHaveText("-$1,512.00");
+
+      await host.setViewportSize({ width: 390, height: 900 });
+      await host.goto(embeddedUrl);
+      const mobile = calculator.locator("#processing-fee-calculator");
+      await expect(mobile).toBeVisible();
+      expect(await mobile.evaluate((node) => node.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+      const mobileHeight = await mobile.evaluate((node) => node.scrollHeight);
+      await host.locator('iframe[title="Embedded fixture"]').evaluate((node, height) => {
+        if (node instanceof HTMLIFrameElement) node.style.height = `${height}px`;
+      }, mobileHeight);
+      await host.screenshot({ path: testInfo.outputPath("calculator-mobile.png"), fullPage: true });
+      expect(widgetErrors).toEqual([]);
+    });
+
+    await test.step("check statement fees through the protected, customizable widget", async () => {
+      const widgetPath = await createWidget(page, "freedom-fee-check", "Freedom Fee Check");
+      const preview = page.frameLocator('iframe[title="Widget preview"]');
+      await expect(preview.locator('[data-panel="statement"]')).toBeVisible();
+      await preview.locator('[data-action="statement-yes"]').click();
+      await expect(preview.locator('[data-panel="sales"]')).toBeVisible();
+      const privatePreview = await requestAt(visitor, `${adminOrigin}${widgetPath}?tab=preview`);
+      expect(privatePreview.headers().location).toMatch(/\/sign-in$/);
+
+      const destination = "https://example.com/fee-review";
+      const actionLabel = "Ask for a fee review";
+      await page.getByRole("link", { name: "Settings", exact: true }).click();
+      await page.getByLabel("Fee review URL", { exact: true }).fill(destination);
+      await page.getByLabel("Fee review button label", { exact: true }).fill(actionLabel);
+      await page.getByRole("button", { name: "Save settings", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: /saved/i })).toBeVisible();
+      await page.getByRole("link", { name: "Embed links", exact: true }).click();
+      await expect(page).toHaveURL(/\?tab=links$/);
+      const link = await createLink(page, approvedOrigin);
+      const embedURL = `${embedOrigin}/embed/${link.id}`;
+      const embeddedURL = `${approvedOrigin}/${link.id}`;
+
+      await page.getByRole("link", { name: "Settings", exact: true }).click();
+      const accent = page.getByLabel("Accent color", { exact: true });
+      const background = page.getByLabel("Page background", { exact: true });
+      const surface = page.getByLabel("Panel background", { exact: true });
+      await expect(accent).toHaveValue("#4a2170");
+      await page.getByLabel("Pick accent color", { exact: true }).fill("#0f766e");
+      await expect(accent).toHaveValue("#0f766e");
+      await page.getByRole("button", { name: "Reset colors", exact: true }).click();
+      await expect(accent).toHaveValue("#4a2170");
+      await accent.fill("#0f766e");
+      await background.fill("#faf4e8");
+      await surface.fill("#effaf5");
+      await page.getByRole("button", { name: "Save settings", exact: true }).click();
+      await expect(page.getByRole("status").filter({ hasText: /saved/i })).toBeVisible();
+      await page.reload();
+      await expect(accent).toHaveValue("#0f766e");
+      await expect(background).toHaveValue("#faf4e8");
+      await expect(surface).toHaveValue("#effaf5");
+      await page.getByRole("link", { name: "Preview", exact: true }).click();
+      await expect(preview.locator(".fee-check-rail")).toHaveCSS("background-color", "rgb(15, 118, 110)");
+
+      await createWidget(page, "freedom-fee-check", "Another fee check");
+      await expect(preview.locator(".fee-check-rail")).toHaveCSS("background-color", "rgb(74, 33, 112)");
+
+      const host = await visitor.newPage();
+      const direct = await host.goto(embedURL);
+      expect(direct?.status()).toBe(403);
+      const violation = host.waitForEvent("console", {
+        predicate: (entry) => entry.text().includes("frame-ancestors"),
+        timeout: 5000,
+      });
+      await host.goto(`${otherOrigin}/${link.id}`);
+      await violation;
+
+      const widgetErrors: string[] = [];
+      host.on("pageerror", (error) => widgetErrors.push(error.message));
+      host.on("console", (entry) => {
+        if (entry.type() === "error") widgetErrors.push(entry.text());
+      });
+      await host.setViewportSize({ width: 1100, height: 850 });
+      await host.goto(embeddedURL);
+      const frame = host.frameLocator('iframe[title="Embedded fixture"]');
+      const statement = frame.locator('[data-panel="statement"]');
+      const help = frame.locator('[data-panel="help"]');
+      const sales = frame.locator('[data-panel="sales"]');
+      const fees = frame.locator('[data-panel="fees"]');
+      const result = frame.locator('[data-panel="result"]');
+      const widget = frame.locator("#freedom-fee-check");
+      await expect(statement).toBeVisible();
+      expect(await widget.evaluate((node) => node.ownerDocument.title)).toBe("Fee Check");
+      await expect(frame.getByRole("heading", { name: "Fee Check", exact: true })).toBeVisible();
+      await expect(frame.locator("body")).not.toContainText(/Freedom/i, { useInnerText: true });
+      await expect(frame.locator(".fee-check-rail")).toHaveCSS("background-color", "rgb(15, 118, 110)");
+      await expect(frame.locator("body")).toHaveCSS("background-color", "rgb(250, 244, 232)");
+      await expect(frame.locator(".fee-check-paper")).toHaveCSS("background-color", "rgb(239, 250, 245)");
+      expect(await widget.evaluate((node) => node.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(1100);
+      await host.screenshot({ path: testInfo.outputPath("fee-check-start.png") });
+
+      await statement.locator('[data-action="statement-no"]').click();
+      await expect(help).toBeVisible();
+      await expect(help.getByRole("link", { name: actionLabel, exact: true })).toHaveAttribute("href", destination);
+      await expect(result).toBeHidden();
+      await help.locator('[data-action="back"]').click();
+      await expect(statement).toBeVisible();
+
+      await statement.locator('[data-action="statement-yes"]').click();
+      await expect(sales.locator("[data-panel-heading]")).toBeFocused();
+      const salesInput = sales.locator("#fee-check-sales");
+      const countInput = sales.getByLabel("Successful credit card transactions (optional)", { exact: true });
+      await expect(sales.getByText("Use the count from the same statement period.", { exact: true })).toBeVisible();
+      await salesInput.fill("50");
+      await countInput.fill("6250");
+      await sales.locator("#fee-check-sales-next").click();
+      await expect(sales.locator("#fee-check-count-error")).toBeVisible();
+      await expect(countInput).toBeFocused();
+      await expect(fees).toBeHidden();
+      await expect(result).toBeHidden();
+
+      await countInput.clear();
+      await sales.locator("#fee-check-sales-next").click();
+      const feeInput = fees.locator("#fee-check-fees");
+      await feeInput.fill("32");
+      await fees.locator("#fee-check-show-result").click();
+      await expect(fees.locator("#fee-check-warning")).toBeVisible();
+      await expect(result).toBeHidden();
+      await host.screenshot({ path: testInfo.outputPath("fee-check-warning.png") });
+
+      await host.setViewportSize({ width: 320, height: 740 });
+      expect(await widget.evaluate((node) => node.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+      await expect(fees.locator("#fee-check-confirm")).toBeVisible();
+      await fees.locator("#fee-check-confirm").click();
+      await expect(result.locator("#fee-check-result-rate")).toHaveText("64%");
+      await expect(result.locator("#fee-check-result-sales")).toHaveText("$50.00");
+      await expect(result.locator("#fee-check-result-fees")).toHaveText("$32.00");
+      await expect(result.locator("#fee-check-average-row")).toBeHidden();
+
+      await host.setViewportSize({ width: 768, height: 900 });
+      expect(await widget.evaluate((node) => node.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(768);
+
+      await result.locator('[data-action="back"]').click();
+      await expect(feeInput).toHaveValue(/^(?:\$\s*)?32(?:\.00)?$/);
+      await fees.locator('[data-action="back"]').click();
+      await expect(salesInput).toHaveValue(/^(?:\$\s*)?50(?:\.00)?$/);
+      await salesInput.fill("1,000");
+      await countInput.fill("50");
+      await sales.locator("#fee-check-sales-next").click();
+      await fees.locator("#fee-check-show-result").click();
+      await expect(result.locator("#fee-check-result-rate")).toHaveText("3.2%");
+      await expect(result.locator("#fee-check-result-average")).toHaveText("$20.00");
+      await host.setViewportSize({ width: 1100, height: 850 });
+      await host.screenshot({ path: testInfo.outputPath("fee-check-result.png") });
+
+      const review = result.getByRole("link", { name: actionLabel, exact: true });
+      await expect(review).toHaveAttribute("href", destination);
+      await expect(review).toHaveAttribute("target", "_blank");
+      await visitor.route(destination, (route) => route.fulfill({ body: "Fee review page" }));
+      const openingReview = visitor.waitForEvent("page");
+      await review.click();
+      const reviewPage = await openingReview;
+      await expect(reviewPage).toHaveURL(destination);
+      await reviewPage.close();
+
+      await result.locator('[data-action="restart"]').click();
+      await statement.locator('[data-action="statement-yes"]').click();
+      await expect(salesInput).toHaveValue("");
+      await expect(countInput).toHaveValue("");
+      await expect(feeInput).toHaveValue("");
+
+      await host.setViewportSize({ width: 390, height: 844 });
+      await host.goto(embeddedURL);
+      await expect(statement).toBeVisible();
+      expect(await widget.evaluate((node) => node.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+      await host.screenshot({ path: testInfo.outputPath("fee-check-mobile.png") });
+      expect(widgetErrors).toEqual([]);
+      await host.close();
+    });
+
+    await test.step("throttle repeated login attempts", async () => {
+      const probe = await visitor.newPage();
+      for (let attempt = 0; attempt < 6; attempt++) {
+        await probe.goto("/sign-in");
+        await signIn(probe, "rate-probe", "incorrect-password");
+        await expect(probe.getByText("The username or password is incorrect.")).toBeVisible();
+      }
+      await probe.goto("/sign-in");
+      await signIn(probe, "rate-probe", "incorrect-password");
+      await expect(probe.getByText(/Too many attempts/)).toBeVisible();
+    });
+  } finally {
+    await visitor.close();
+    await platform.close();
+  }
+});

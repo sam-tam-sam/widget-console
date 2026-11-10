@@ -1,0 +1,19 @@
+.widget-preview {
+  display: grid;
+  gap: .8rem;
+}
+
+.widget-preview p,
+.widget-preview-message {
+  font-size: .875rem;
+  color: var(--muted-foreground);
+}
+
+.widget-preview-frame {
+  display: block;
+  width: 100%;
+  height: 19rem;
+  border: 1px solid var(--border);
+  border-radius: .65rem;
+  background: #fff;
+}

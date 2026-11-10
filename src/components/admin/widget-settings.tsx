@@ -1,0 +1,114 @@
+import { updateInstanceAction } from "@/app/(admin)/admin/actions";
+import { AdminForm } from "@/components/admin/form";
+import { DeleteWidget } from "@/components/admin/delete-widget";
+import { WidgetAppearanceFields } from "@/components/admin/widget-appearance-fields";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { resolveWidgetAppearance } from "@/widgets/appearance";
+import type { WidgetConfigurationField, WidgetInstance, WidgetTemplateSummary } from "@/widgets/contracts";
+
+function ConfigurationField({ field, value }: { field: WidgetConfigurationField; value: unknown }) {
+  const id = `widget-field-${field.key}`;
+  const input = {
+    id,
+    name: `config.${field.key}`,
+    defaultValue: typeof value === "string" || typeof value === "number" ? value : "",
+    "aria-describedby": field.description ? `${id}-help` : undefined,
+  };
+  return (
+    <div className="console-field">
+      <Label htmlFor={id}>{field.label}</Label>
+      {field.control ? (
+        <Input
+          {...input}
+          type={field.control}
+          min={field.control === "number" ? 0 : undefined}
+          step={field.control === "number" ? "any" : undefined}
+        />
+      ) : (
+        <textarea {...input} className="console-text-field" rows={4} />
+      )}
+      {field.description && <small id={`${id}-help`}>{field.description}</small>}
+    </div>
+  );
+}
+
+export function WidgetSettings({
+  widget,
+  template,
+  linkCount,
+}: {
+  widget: WidgetInstance;
+  template?: WidgetTemplateSummary;
+  linkCount: number;
+}) {
+  const sections = new Map<string, WidgetConfigurationField[]>();
+  for (const field of template?.configurationFields ?? []) {
+    const section = field.section ?? "";
+    const fields = sections.get(section) ?? [];
+    fields.push(field);
+    sections.set(section, fields);
+  }
+  const appearance = template?.appearance;
+  const colors = appearance ? resolveWidgetAppearance(appearance, widget.configuration) : null;
+
+  return (
+    <div className="console-editor console-stack">
+      <section className="console-panel console-form-panel" aria-labelledby="widget-settings-heading">
+        <div className="console-section-heading">
+          <h2 id="widget-settings-heading">Widget settings</h2>
+          <p>Saved changes apply to this widget and its existing embed links.</p>
+        </div>
+        <AdminForm action={updateInstanceAction} label="Save settings" className="console-form console-form-spacious">
+          <input type="hidden" name="id" value={widget.id} />
+          <div className="console-field">
+            <Label htmlFor="widget-name">Widget name</Label>
+            <Input id="widget-name" name="name" defaultValue={widget.name} required maxLength={100} />
+          </div>
+          {[...sections].map(([section, fields]) => {
+            const controls = fields.map((field) => (
+              <ConfigurationField key={field.key} field={field} value={widget.configuration[field.key]} />
+            ));
+            return section ? (
+              <fieldset key={section} className="console-setting-group">
+                <legend>{section}</legend>
+                <div className="console-setting-grid">{controls}</div>
+              </fieldset>
+            ) : controls;
+          })}
+          {template && !template.configurationFields && (
+            <details className="console-disclosure">
+              <summary>Advanced configuration</summary>
+              <div className="console-field">
+                <Label htmlFor="widget-configuration">Configuration JSON</Label>
+                <textarea
+                  id="widget-configuration"
+                  name="configuration"
+                  className="console-code-field"
+                  defaultValue={JSON.stringify(widget.configuration, null, 2)}
+                  rows={4}
+                  spellCheck={false}
+                  maxLength={16_384}
+                />
+              </div>
+            </details>
+          )}
+          {appearance && colors && (
+            <WidgetAppearanceFields
+              key={`${widget.id}:${colors.accent}:${colors.background}:${colors.surface}`}
+              defaults={appearance}
+              initial={colors}
+            />
+          )}
+        </AdminForm>
+      </section>
+      <section className="console-panel console-form-panel console-danger" aria-labelledby="delete-widget-heading">
+        <div>
+          <h2 id="delete-widget-heading">Delete this widget</h2>
+          <p>Permanently remove this widget and its embed links.</p>
+        </div>
+        <DeleteWidget id={widget.id} name={widget.name} linkCount={linkCount} />
+      </section>
+    </div>
+  );
+}

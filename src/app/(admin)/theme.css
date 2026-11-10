@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+.admin-theme {
+  --background: #f7f7f0;
+  --foreground: #202923;
+  --card: #fffef8;
+  --card-foreground: #202923;
+  --muted: #edeee5;
+  --muted-foreground: #526052;
+  --primary: #244f3d;
+  --primary-foreground: #ffffff;
+  --secondary: #e4ebdd;
+  --secondary-foreground: #244737;
+  --accent: #e7eee2;
+  --accent-foreground: #244737;
+  --destructive: #9c292c;
+  --destructive-foreground: #fff7f5;
+  --border: #d5dbd0;
+  --input: #859383;
+  --ring: #386e55;
+  min-height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Segoe UI", system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.admin-theme ::selection {
+  background: #d4e6d4;
+  color: #172d21;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-theme *,
+  .admin-theme *::before,
+  .admin-theme *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,37 @@
+name: widget-console
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      WIDGET_ADMIN_USERNAME: ${WIDGET_ADMIN_USERNAME:?Set WIDGET_ADMIN_USERNAME in Dockhand}
+      WIDGET_ADMIN_PASSWORD: ${WIDGET_ADMIN_PASSWORD:?Set WIDGET_ADMIN_PASSWORD in Dockhand}
+      WIDGET_ADMIN_ORIGIN: ${WIDGET_ADMIN_ORIGIN:?Set WIDGET_ADMIN_ORIGIN to an HTTPS origin}
+      WIDGET_EMBED_ORIGIN: ${WIDGET_EMBED_ORIGIN:?Set WIDGET_EMBED_ORIGIN to a separate HTTPS origin}
+      WIDGET_TRUST_CLOUDFLARE: ${WIDGET_TRUST_CLOUDFLARE:-0}
+      WIDGET_DB_PATH: /app/persist/data/widget-console.sqlite
+    ports:
+      - target: 3000
+        published: "${WIDGET_HOST_PORT:-3100}"
+        host_ip: ${WIDGET_BIND_IP:-127.0.0.1}
+    networks:
+      default:
+        aliases:
+          - widget-console
+    volumes:
+      - data:/app/persist
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  data:
+    name: ${WIDGET_VOLUME_NAME:-widget-console-data}
+
+networks:
+  default:
+    name: ${WIDGET_NETWORK_NAME:-widget-console}
