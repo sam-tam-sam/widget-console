@@ -134,7 +134,7 @@ export const freedomFeeCheck: WidgetTemplate = {
   description: "Guide visitors through a monthly processing statement and show the effective fee rate.",
   appearance,
   configurationFields: feeCheckFields,
-  embedHeight: 780,
+  embedHeights: { compact: 820, mobile: 780, wide: 780 },
   clientScript: feeCheckScript,
   parseConfiguration: parseFeeCheckSettings,
   render({ configuration }) {

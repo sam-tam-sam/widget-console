@@ -5,7 +5,7 @@ import { WidgetAppearanceFields } from "@/components/admin/widget-appearance-fie
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { resolveWidgetAppearance } from "@/widgets/appearance";
-import type { WidgetConfigurationField, WidgetInstance, WidgetTemplateSummary } from "@/widgets/contracts";
+import type { WidgetAppearance, WidgetConfigurationField, WidgetInstance, WidgetTemplateSummary } from "@/widgets/contracts";
 
 function ConfigurationField({ field, value }: { field: WidgetConfigurationField; value: unknown }) {
   const id = `widget-field-${field.key}`;
@@ -49,9 +49,10 @@ export function WidgetSettings({
     fields.push(field);
     sections.set(section, fields);
   }
-  const appearance = template?.appearance;
-  const colors = appearance ? resolveWidgetAppearance(appearance, widget.configuration) : null;
   const approvedOrigins = widget.approvedOrigins?.join("\n") ?? "";
+  const templateConfiguration = { ...widget.configuration };
+  delete templateConfiguration.appearance;
+  delete templateConfiguration.embedHeights;
 
   return (
     <div className="console-editor console-stack">
@@ -86,20 +87,13 @@ export function WidgetSettings({
                   id="widget-configuration"
                   name="configuration"
                   className="console-code-field"
-                  defaultValue={JSON.stringify(widget.configuration, null, 2)}
+                  defaultValue={JSON.stringify(templateConfiguration, null, 2)}
                   rows={4}
                   spellCheck={false}
                   maxLength={16_384}
                 />
               </div>
             </details>
-          )}
-          {appearance && colors && (
-            <WidgetAppearanceFields
-              key={`${widget.id}:${colors.accent}:${colors.surface}`}
-              defaults={appearance}
-              initial={colors}
-            />
           )}
         </AdminForm>
       </section>
@@ -137,6 +131,28 @@ export function WidgetSettings({
           <p>Permanently remove this widget and its embed links.</p>
         </div>
         <DeleteWidget id={widget.id} name={widget.name} linkCount={linkCount} />
+      </section>
+    </div>
+  );
+}
+
+export function WidgetStyleSettings({ widget, appearance }: { widget: WidgetInstance; appearance: WidgetAppearance }) {
+  const colors = resolveWidgetAppearance(appearance, widget.configuration);
+  return (
+    <div className="console-editor">
+      <section className="console-panel console-form-panel" aria-labelledby="widget-style-heading">
+        <div className="console-section-heading">
+          <h2 id="widget-style-heading">Widget style</h2>
+          <p>Set colors for this widget. The outer background stays transparent on the page where you embed it.</p>
+        </div>
+        <AdminForm action={updateInstanceAction} label="Save style" className="console-form console-form-spacious">
+          <input type="hidden" name="id" value={widget.id} />
+          <WidgetAppearanceFields
+            key={`${widget.id}:${colors.accent}:${colors.surface}`}
+            defaults={appearance}
+            initial={colors}
+          />
+        </AdminForm>
       </section>
     </div>
   );

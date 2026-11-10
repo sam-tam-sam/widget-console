@@ -14,6 +14,17 @@ type AdminFormProps = {
   className?: string;
 };
 
+export function FormMessage({ state, id }: { state: FormResult; id?: string }) {
+  if (!state.message) return null;
+
+  return (
+    <p id={id} role={state.error ? "alert" : "status"} className="console-message" data-error={state.error || undefined}>
+      {state.error ? <CircleAlert size={16} aria-hidden="true" /> : <CircleCheck size={16} aria-hidden="true" />}
+      {state.message}
+    </p>
+  );
+}
+
 export function AdminForm({ action, children, label, variant, disabled, className }: AdminFormProps) {
   const [state, dispatch, pending] = useActionState(action, {});
   const statusId = useId();
@@ -25,12 +36,7 @@ export function AdminForm({ action, children, label, variant, disabled, classNam
         {pending && <LoaderCircle className="animate-spin" aria-hidden="true" />}
         {label}
       </Button>
-      {state.message && (
-        <p id={statusId} role={state.error ? "alert" : "status"} className="console-message" data-error={state.error || undefined}>
-          {state.error ? <CircleAlert size={16} aria-hidden="true" /> : <CircleCheck size={16} aria-hidden="true" />}
-          {state.message}
-        </p>
-      )}
+      <FormMessage state={state} id={statusId} />
     </form>
   );
 }

@@ -160,7 +160,7 @@ export const processingFeeCalculator: WidgetTemplate = {
   description: "Compare monthly card processing costs and link visitors to your quote page.",
   appearance,
   configurationFields: calculatorFields,
-  embedHeight: 960,
+  embedHeights: { compact: 1360, mobile: 1240, wide: 960 },
   clientScript: calculatorScript,
   parseConfiguration: parseCalculatorSettings,
   render({ configuration }) {

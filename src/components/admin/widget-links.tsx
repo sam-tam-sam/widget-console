@@ -1,22 +1,37 @@
 import { CodeXml, Link2, Plus } from "lucide-react";
 import Link from "next/link";
 import { createLinkAction, toggleLinkAction } from "@/app/(admin)/admin/actions";
+import { ConfirmAction } from "@/components/admin/confirm-action";
 import { EmbedCode } from "@/components/admin/embed-code";
 import { AdminForm } from "@/components/admin/form";
 import { applicationOrigin } from "@/lib/embeds";
 import type { WidgetLink } from "@/lib/widgets";
-import type { WidgetInstance } from "@/widgets/contracts";
+import type { WidgetEmbedHeights, WidgetInstance, WidgetTemplateSummary } from "@/widgets/contracts";
+import { resolveWidgetEmbedHeights, widgetEmbedProfiles } from "@/widgets/embed-size";
+import { escapeHtml } from "@/widgets/html";
 
-function escapeAttribute(text: string) {
-  return text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
-
-function makeEmbedMarkup(origin: string, id: string, title: string, height: number) {
+function makeEmbedMarkup(origin: string, id: string, title: string, heights: WidgetEmbedHeights) {
   const src = new URL(`/embed/${encodeURIComponent(id)}`, origin).href;
-  return `<iframe src="${escapeAttribute(src)}" title="${escapeAttribute(title)}" width="100%" height="${height}" loading="lazy"></iframe>`;
+  const className = `widget-console-embed-${id.replace(/[^a-f0-9-]/g, "")}`;
+  const rules = [...widgetEmbedProfiles].reverse().flatMap(({ key, maxWidth }) => maxWidth === undefined
+    ? []
+    : [`    @container (max-width: ${maxWidth}px) { .${className} { height: var(--widget-height-${key}); } }`]);
+  return [
+    '<div style="container-type:inline-size;width:100%">',
+    "  <style>",
+    ...rules,
+    "  </style>",
+    `  <iframe class="${className}" src="${escapeHtml(src)}" title="${escapeHtml(title)}" width="100%" height="${heights.wide}" style="display:block;width:100%;border:0;--widget-height-compact:${heights.compact}px;--widget-height-mobile:${heights.mobile}px" loading="lazy"></iframe>`,
+    "</div>",
+  ].join("\n");
 }
 
-function LinkCard({ link, origin, embedTitle, height }: { link: WidgetLink; origin: string | null; embedTitle: string; height: number }) {
+function LinkCard({ link, origin, embedTitle, heights }: {
+  link: WidgetLink;
+  origin: string | null;
+  embedTitle: string;
+  heights: WidgetEmbedHeights;
+}) {
   return (
     <li data-link-id={link.id} className="console-link-record">
       <div className="console-link-heading">
@@ -30,7 +45,7 @@ function LinkCard({ link, origin, embedTitle, height }: { link: WidgetLink; orig
         </span>
       </div>
       {origin ? (
-        <EmbedCode markup={makeEmbedMarkup(origin, link.id, embedTitle, height)} />
+        <EmbedCode markup={makeEmbedMarkup(origin, link.id, embedTitle, heights)} />
       ) : (
         <p className="console-empty-note">Configure the application origin to generate iframe code.</p>
       )}
@@ -58,41 +73,53 @@ function LinkCard({ link, origin, embedTitle, height }: { link: WidgetLink; orig
   );
 }
 
-export function WidgetLinks({ widget, links, embedTitle = widget.name, height = 360 }: {
+export function WidgetLinks({ widget, links, template }: {
   widget: WidgetInstance;
   links: WidgetLink[];
-  embedTitle?: string;
-  height?: number;
+  template?: WidgetTemplateSummary;
 }) {
   const origin = applicationOrigin()?.origin ?? null;
   const settings = `/admin/widgets/${encodeURIComponent(widget.id)}#widget-approved-origins`;
+  const heights = resolveWidgetEmbedHeights(template, widget.configuration.embedHeights);
+  const current = links[0];
 
   return (
     <div className="console-editor console-stack">
       <section className="console-panel console-form-panel" aria-labelledby="new-link-title">
         <div className="console-panel-title">
           <span className="console-instance-icon"><Plus size={17} aria-hidden="true" /></span>
-          <h2 id="new-link-title">Add embed link</h2>
+          <h2 id="new-link-title">Publish this widget</h2>
         </div>
-        <AdminForm action={createLinkAction} label="Create embed link" className="console-form">
+        <p className="console-empty-note">Choose which sites can display this widget in <Link href={settings} className="underline">Approved origins</Link>.</p>
+        <ConfirmAction
+          action={createLinkAction}
+          label="Create embed link"
+          confirmation={current ? {
+            title: "Replace embed link?",
+            label: "Replace link",
+            description: links.length > 1
+              ? `All ${links.length} existing links will stop working. Copy the new code to any page that uses this widget.`
+              : "The existing link will stop working. Copy the new code to any page that uses this widget.",
+          } : undefined}
+        >
           <input type="hidden" name="instanceId" value={widget.id} />
-          <p className="console-empty-note">Choose which sites can display this widget in <Link href={settings} className="underline">Approved origins</Link>.</p>
-        </AdminForm>
+          {current && <input type="hidden" name="previousLinkId" value={current.id} />}
+        </ConfirmAction>
       </section>
 
       <section className="console-panel" aria-labelledby="widget-links">
         <header className="console-inventory-header">
-          <h2 id="widget-links">Links for this widget</h2>
-          <span>{links.length} {links.length === 1 ? "link" : "links"}</span>
+          <h2 id="widget-links">Current embed link</h2>
+          {links.length > 1 && <span>{links.length} existing links</span>}
         </header>
-        {links.length === 0 ? (
+        {!current ? (
           <div className="console-empty">
             <CodeXml size={21} aria-hidden="true" />
-            <div><h3>No embed links yet</h3><p>Create a link to get the iframe code for this widget.</p></div>
+            <div><h3>No embed link yet</h3><p>Create a link to get the iframe code for this widget.</p></div>
           </div>
         ) : (
           <ul className="console-records">
-            {links.map((link) => <LinkCard key={link.id} link={link} origin={origin} embedTitle={embedTitle} height={height} />)}
+            <LinkCard key={current.id} link={current} origin={origin} embedTitle={template?.name ?? widget.name} heights={heights} />
           </ul>
         )}
       </section>

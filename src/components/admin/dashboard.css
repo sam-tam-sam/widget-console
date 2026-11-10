@@ -185,14 +185,36 @@
 
 .console-inventory-header h2, .console-panel-title h2 { font-size: 1rem; font-weight: 670; }
 .console-inventory-header span { color: var(--muted-foreground); font-size: .82rem; }
-.console-widget-row { min-height: 4.75rem; padding: .6rem 1rem; }
-.console-widget-row + .console-widget-row, .console-link-record + .console-link-record {
+.console-widget-row {
+  min-height: 4.75rem;
+  padding: .6rem 1rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.console-widget-inventory .console-records > li + li, .console-link-record + .console-link-record {
   border-top: 1px solid var(--border);
 }
 
+.console-widget-inventory .console-records > :where(li:last-child) .console-widget-row { border-radius: 0 0 .7rem .7rem; }
+.console-widget-row:hover { background: var(--secondary); }
+.console-main .console-widget-row:focus-visible { outline-offset: -2px; }
 .console-widget-row .console-record-name, .console-link-heading .console-record-name { flex: 1; }
 .console-widget-count { color: var(--muted-foreground); font-size: .82rem; }
-.console-widget-row > a { color: var(--primary); }
+.console-widget-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  gap: .35rem;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  padding-inline: .5rem;
+  border-radius: .5rem;
+  color: var(--primary);
+  font-size: .82rem;
+  font-weight: 600;
+}
 
 .console-instance-icon {
   width: 2rem;
@@ -233,25 +255,6 @@
   font-weight: 610;
 }
 
-.console-tabs {
-  display: flex;
-  gap: .8rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.console-tabs a {
-  display: flex;
-  align-items: center;
-  min-height: 46px;
-  padding-inline: .45rem;
-  border-bottom: 2px solid transparent;
-  color: var(--muted-foreground);
-  font-size: .875rem;
-  font-weight: 610;
-}
-
-.console-tabs a:hover, .console-tabs a[aria-current="page"] { color: var(--primary); }
-.console-tabs a[aria-current="page"] { border-bottom-color: var(--primary); font-weight: 700; }
 .console-tab-content { padding-top: 1.2rem; }
 .console-notice { margin-bottom: .85rem; }
 .console-panel-title { gap: .6rem; margin-bottom: .95rem; }
@@ -402,10 +405,42 @@
 }
 
 @media (max-width: 550px) {
+  .console-sidebar { grid-template-areas: "brand profile"; padding: .5rem .9rem; }
+  .console-brand { min-height: 44px; margin: 0; }
+  .console-nav { display: none; }
+  .console-profile [data-slot="button"] { border: 1px solid var(--console-sidebar-border); }
+  .console-main { padding: 1.15rem .9rem 2.5rem; }
   .console-page-header { align-items: start; flex-direction: column; gap: .75rem; }
-  .console-widget-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .25rem .65rem; }
-  .console-widget-row > a { grid-column: 3; grid-row: 1 / span 2; }
-  .console-widget-count { grid-column: 2; font-size: .75rem; }
+  .console-dashboard-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: .5rem .75rem;
+    padding-bottom: 1rem;
+  }
+  .console-dashboard-header > div { display: contents; }
+  .console-dashboard-header h1 { grid-area: 1 / 1; font-size: clamp(1.85rem, 6vw, 2.2rem); }
+  .console-dashboard-header p { grid-column: 1 / -1; grid-row: 2; margin: 0; font-size: .875rem; }
+  .console-dashboard-header > a { grid-area: 1 / 2; }
+
+  .console-widget-inventory { border: 0; background: transparent; }
+  .console-widget-inventory .console-inventory-header { padding: .65rem .1rem; border: 0; }
+  .console-widget-inventory .console-records { display: grid; gap: .55rem; }
+  .console-widget-inventory .console-records > li + li { border: 0; }
+  .console-widget-inventory .console-records > li .console-widget-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: .2rem .6rem;
+    padding: .7rem;
+    border: 1px solid var(--border);
+    border-radius: .7rem;
+    background: var(--card);
+  }
+  .console-widget-row .console-instance-icon { grid-area: 1 / 1 / span 2; }
+  .console-widget-row .console-record-name { grid-area: 1 / 2; }
+  .console-widget-count { grid-area: 2 / 2; font-size: .75rem; }
+  .console-widget-open { grid-area: 1 / 3 / span 2; padding: 0; background: var(--secondary); }
+  .console-widget-open > span { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

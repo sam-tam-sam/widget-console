@@ -7,6 +7,12 @@ export type WidgetAppearance = {
   surface: string;
 };
 
+export type WidgetEmbedHeights = {
+  compact: number;
+  mobile: number;
+  wide: number;
+};
+
 export type WidgetConfigurationField = {
   key: string;
   label: string;
@@ -22,6 +28,7 @@ export type WidgetTemplateSummary = {
   configurationFields?: readonly WidgetConfigurationField[];
   appearance?: WidgetAppearance;
   embedHeight?: number;
+  embedHeights?: Partial<WidgetEmbedHeights>;
 };
 
 export type WidgetInstance = {

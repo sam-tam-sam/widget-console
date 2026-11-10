@@ -16,6 +16,7 @@ import {
 } from "@/lib/widgets";
 import type { WidgetConfiguration } from "@/widgets/contracts";
 import { widgetAppearanceFields, widgetAppearanceInputName } from "@/widgets/appearance";
+import { widgetEmbedHeightInputName, widgetEmbedProfiles } from "@/widgets/embed-size";
 
 export type FormResult = { message?: string; error?: boolean };
 
@@ -59,7 +60,17 @@ function configuration(
   const text = fields.length ? "" : field(data, "configuration").trim();
   if (!text && !fields.length && !colors.length) return undefined;
 
-  const value = text ? advancedConfiguration(text) : { ...previous };
+  const value = { ...previous };
+  if (text) {
+    const { appearance, embedHeights } = value;
+    const settings = advancedConfiguration(text);
+    delete settings.appearance;
+    delete settings.embedHeights;
+    if (appearance !== undefined) settings.appearance = appearance;
+    if (embedHeights !== undefined) settings.embedHeights = embedHeights;
+    if (JSON.stringify(settings).length > 16_384) throw new WidgetError("Configuration is too large.");
+    return settings;
+  }
   for (const { key, label } of fields) {
     const entry = data.get(`config.${key}`);
     if (typeof entry !== "string") throw new WidgetError(`Enter text for ${label}.`);
@@ -120,17 +131,36 @@ export async function updateInstanceAction(_state: FormResult, data: FormData) {
     if (!instance) throw new WidgetError("This widget instance is unavailable.");
     updateInstance({
       id: instance.id,
-      name: field(data, "name"),
+      name: data.has("name") ? field(data, "name") : instance.name,
       configuration: configuration(data, instance.templateKey, instance.configuration),
     });
-    return { instanceId: instance.id, message: "Settings saved." };
+    return { instanceId: instance.id, message: data.has("name") ? "Settings saved." : "Style saved." };
+  });
+}
+
+export async function updateWidgetSizeAction(_state: FormResult, data: FormData) {
+  return submit(() => {
+    const instance = getInstance(field(data, "id"));
+    if (!instance) throw new WidgetError("This widget instance is unavailable.");
+    const embedHeights = Object.fromEntries(widgetEmbedProfiles.map(({ key }) => {
+      const value = data.get(widgetEmbedHeightInputName(key));
+      if (typeof value !== "string") throw new WidgetError("Enter valid embed heights.");
+      return [key, value.trim()];
+    }));
+    updateInstance({
+      id: instance.id,
+      name: instance.name,
+      configuration: { ...instance.configuration, embedHeights },
+    });
+    return { instanceId: instance.id, message: "Embed sizes saved." };
   });
 }
 
 export async function createLinkAction(_state: FormResult, data: FormData) {
   return submit(() => {
-    const link = createLink({ instanceId: field(data, "instanceId") });
-    return { instanceId: link.instanceId, message: "Embed link created." };
+    const previousLinkId = field(data, "previousLinkId") || undefined;
+    const link = createLink({ instanceId: field(data, "instanceId"), previousLinkId });
+    return { instanceId: link.instanceId, message: previousLinkId ? "Embed link replaced." : "Embed link created." };
   });
 }
 

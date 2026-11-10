@@ -1,17 +1,21 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Eye, Link2, Paintbrush, Ruler, Settings } from "lucide-react";
 import { AdminShell } from "@/components/admin/shell";
 import { WidgetLinks } from "@/components/admin/widget-links";
 import { WidgetPreview } from "@/components/admin/widget-preview";
-import { WidgetSettings } from "@/components/admin/widget-settings";
+import { WidgetSettings, WidgetStyleSettings } from "@/components/admin/widget-settings";
+import { WidgetSizeSettings } from "@/components/admin/widget-size-settings";
 import { requireAdmin } from "@/lib/auth";
 import { getInstance, listLinks, listTemplates } from "@/lib/widgets";
+import "@/components/admin/widget-sections.css";
 
 const sections = [
-  { key: "settings", label: "Settings", query: "" },
-  { key: "preview", label: "Preview", query: "?tab=preview" },
-  { key: "links", label: "Embed links", query: "?tab=links" },
+  { key: "settings", label: "Settings", query: "", icon: Settings },
+  { key: "style", label: "Style", query: "?tab=style", icon: Paintbrush },
+  { key: "size", label: "Size", query: "?tab=size", icon: Ruler },
+  { key: "preview", label: "Preview", query: "?tab=preview", icon: Eye },
+  { key: "links", label: "Embed links", query: "?tab=links", icon: Link2 },
 ] as const;
 
 export default async function WidgetPage({
@@ -27,10 +31,30 @@ export default async function WidgetPage({
   if (!widget) notFound();
 
   const template = listTemplates().find(({ key }) => key === widget.templateKey);
+  const appearance = template?.appearance;
   const links = listLinks(widget.id);
   const { tab } = await searchParams;
-  const section = tab === "links" || tab === "preview" ? tab : "settings";
+  const availableSections = sections.filter(({ key }) => key !== "style" || appearance);
+  const section = availableSections.find(({ key }) => key === tab)?.key ?? "settings";
   const path = `/admin/widgets/${widget.id}`;
+
+  let content;
+  switch (section) {
+    case "style":
+      if (appearance) content = <WidgetStyleSettings widget={widget} appearance={appearance} />;
+      break;
+    case "size":
+      content = <WidgetSizeSettings widget={widget} template={template} />;
+      break;
+    case "preview":
+      content = <WidgetPreview instanceId={widget.id} />;
+      break;
+    case "links":
+      content = <WidgetLinks widget={widget} links={links} template={template} />;
+      break;
+    default:
+      content = <WidgetSettings widget={widget} template={template} linkCount={links.length} />;
+  }
 
   return (
     <AdminShell username={username}>
@@ -41,22 +65,15 @@ export default async function WidgetPage({
           <p>{template?.name ?? "Unavailable template"}</p>
         </div>
       </header>
-      <nav className="console-tabs" aria-label="Widget sections">
-        {sections.map(({ key, label, query }) => (
+      <nav className="console-widget-tabs" aria-label="Widget sections">
+        {availableSections.map(({ key, label, query, icon: Icon }) => (
           <Link key={key} href={path + query} aria-current={section === key ? "page" : undefined}>
+            <Icon size={16} aria-hidden="true" />
             {label}
           </Link>
         ))}
       </nav>
-      <div className="console-tab-content">
-        {section === "preview" ? (
-          <WidgetPreview instanceId={widget.id} />
-        ) : section === "links" ? (
-          <WidgetLinks widget={widget} links={links} embedTitle={template?.name} height={template?.embedHeight} />
-        ) : (
-          <WidgetSettings widget={widget} template={template} linkCount={links.length} />
-        )}
-      </div>
+      <div className="console-tab-content">{content}</div>
     </AdminShell>
   );
 }

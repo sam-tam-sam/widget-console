@@ -12,6 +12,7 @@ import {
 import { registeredTemplates } from "@/widgets/registry";
 import { renderWidgetDocument } from "@/widgets/html";
 import { parseWidgetAppearance } from "@/widgets/appearance";
+import { defaultWidgetEmbedHeights, parseWidgetEmbedHeights, resolveWidgetEmbedHeights } from "@/widgets/embed-size";
 
 export { WidgetError };
 
@@ -122,19 +123,22 @@ function readInstance(db: DatabaseSync, id: string): InstanceRow {
 }
 
 export function listTemplates(): WidgetTemplateSummary[] {
-  return registeredTemplates().map(({ key, name, description, configurationFields, appearance, embedHeight }) =>
-    ({ key, name, description, configurationFields, appearance, embedHeight }),
+  return registeredTemplates().map(({ key, name, description, configurationFields, appearance, embedHeight, embedHeights }) =>
+    ({ key, name, description, configurationFields, appearance, embedHeight, embedHeights }),
   );
 }
 
 function parseInstanceConfiguration(template: WidgetTemplate, input: unknown): WidgetConfiguration {
-  if (!template.appearance || !input || typeof input !== "object" || Array.isArray(input)) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
     return template.parseConfiguration(input);
   }
-  const { appearance, ...settings } = input as WidgetConfiguration;
+  const { appearance, embedHeights, ...settings } = input as WidgetConfiguration;
   const configuration = template.parseConfiguration(settings);
-  const overrides = parseWidgetAppearance(appearance, template.appearance);
-  return Object.keys(overrides).length ? { ...configuration, appearance: overrides } : configuration;
+  const colors = template.appearance && parseWidgetAppearance(appearance, template.appearance);
+  const heights = parseWidgetEmbedHeights(embedHeights, defaultWidgetEmbedHeights(template));
+  if (colors && Object.keys(colors).length) configuration.appearance = colors;
+  if (Object.keys(heights).length) configuration.embedHeights = heights;
+  return configuration;
 }
 
 export function listInstances(): WidgetInstance[] {
@@ -230,19 +234,32 @@ export function deleteInstance(id: string): void {
   }
 }
 
-export function createLink(input: { instanceId: string }): WidgetLink {
+export function createLink(input: { instanceId: string; previousLinkId?: string }): WidgetLink {
   const db = storage();
-  const instance = readInstance(db, input.instanceId);
-  requireTemplate(instance.template_key);
   const id = randomUUID();
 
-  const result = db.prepare(`
-    INSERT INTO widget_embed_links (id, instance_id, origins_json, created_at)
-    SELECT ?, id, COALESCE(approved_origins_json, '[]'), ? FROM widget_instances WHERE id = ?
-  `).run(id, Date.now(), instance.id);
-  if (result.changes !== 1) throw new WidgetError("This widget instance is unavailable.");
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const instance = readInstance(db, input.instanceId);
+    requireTemplate(instance.template_key);
+    const previous = db.prepare(`
+      SELECT id, origins_json FROM widget_embed_links
+      WHERE instance_id = ? ORDER BY created_at DESC, id DESC LIMIT 1
+    `).get(instance.id) as { id: string; origins_json: string } | undefined;
+    if (previous?.id !== input.previousLinkId) {
+      throw new WidgetError("The embed link changed. Reload this page and try again.");
+    }
 
-  return { id, instanceId: instance.id, enabled: true };
+    if (previous) db.prepare("DELETE FROM widget_embed_links WHERE instance_id = ?").run(instance.id);
+    db.prepare(`
+      INSERT INTO widget_embed_links (id, instance_id, origins_json, created_at) VALUES (?, ?, ?, ?)
+    `).run(id, instance.id, instance.approved_origins_json ?? previous?.origins_json ?? "[]", Date.now());
+    db.exec("COMMIT");
+    return { id, instanceId: instance.id, enabled: true };
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 export function updateLink(input: {
@@ -270,7 +287,7 @@ function renderSavedInstance(row: InstanceRow) {
     const configuration = parseInstanceConfiguration(template, instance.configuration);
     return {
       name: instance.name,
-      embedHeight: template.embedHeight,
+      embedHeights: resolveWidgetEmbedHeights(template, configuration.embedHeights),
       ...renderWidgetDocument(template, { ...instance, configuration }),
     };
   } catch (error) {

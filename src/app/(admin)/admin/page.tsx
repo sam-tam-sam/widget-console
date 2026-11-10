@@ -25,10 +25,10 @@ export default async function WidgetsPage({
 
   return (
     <AdminShell username={username}>
-      <header className="console-page-header">
+      <header className="console-page-header console-dashboard-header">
         <div>
           <h1>Widgets</h1>
-          <p>Open a widget to edit its settings, preview it, or manage where it appears.</p>
+          <p>Configure your widgets, preview them, and manage where they appear.</p>
         </div>
         {templates.size > 0 && (
           <Button asChild>
@@ -52,29 +52,34 @@ export default async function WidgetsPage({
           </div>
         </div>
       ) : (
-        <section className="console-panel console-inventory" aria-labelledby="saved-widgets">
+        <section className="console-panel console-inventory console-widget-inventory" aria-labelledby="saved-widgets">
           <header className="console-inventory-header">
             <h2 id="saved-widgets">All widgets</h2>
             <span>{instances.length} {instances.length === 1 ? "widget" : "widgets"}</span>
           </header>
-          <ul className="console-records">
+          <ul className="console-records" role="list">
             {instances.map((widget) => {
               const counts = linkCounts.get(widget.id);
               return (
-                <li className="console-widget-row" key={widget.id}>
-                  <span className="console-instance-icon"><Blocks size={17} aria-hidden="true" /></span>
-                  <div className="console-record-name">
-                    <strong>{widget.name}</strong>
-                    <small>{templates.get(widget.templateKey) ?? "Unavailable template"}</small>
-                  </div>
-                  <span className="console-widget-count">
-                    {counts ? `${counts.enabled} of ${counts.total} active ${counts.total === 1 ? "link" : "links"}` : "No embed links"}
-                  </span>
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link href={`/admin/widgets/${widget.id}`} aria-label={`Open ${widget.name}`}>
-                      Open <ArrowRight aria-hidden="true" />
-                    </Link>
-                  </Button>
+                <li key={widget.id}>
+                  <Link
+                    href={`/admin/widgets/${widget.id}`}
+                    className="console-widget-row"
+                    aria-label={`Open ${widget.name}`}
+                    aria-describedby={`widget-template-${widget.id} widget-links-${widget.id}`}
+                  >
+                    <span className="console-instance-icon"><Blocks size={17} aria-hidden="true" /></span>
+                    <span className="console-record-name">
+                      <strong>{widget.name}</strong>
+                      <small id={`widget-template-${widget.id}`}>{templates.get(widget.templateKey) ?? "Unavailable template"}</small>
+                    </span>
+                    <span className="console-widget-count" id={`widget-links-${widget.id}`}>
+                      {counts ? `${counts.enabled} of ${counts.total} active ${counts.total === 1 ? "link" : "links"}` : "No embed links"}
+                    </span>
+                    <span className="console-widget-open" aria-hidden="true">
+                      <span>Open</span><ArrowRight size={16} />
+                    </span>
+                  </Link>
                 </li>
               );
             })}

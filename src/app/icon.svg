@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Widget Console">
+  <path fill="#244f3d" d="M0 0h128v128H0z" />
+  <rect x="29" y="29" width="29" height="70" rx="8" fill="#f7f7f0" />
+  <rect x="66" y="29" width="33" height="31" rx="8" fill="#a9cbb7" />
+  <rect x="66" y="68" width="33" height="31" rx="8" fill="#f7f7f0" />
+</svg>

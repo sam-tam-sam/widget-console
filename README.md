@@ -106,13 +106,19 @@ Both checks should return HTTP `200` with `{"status":"ok"}`. Test the sign-in pa
 ## Manage widgets
 
 1. Choose **New widget**, select a registered template, and save. The new widget opens on its own settings page.
-2. Open **Preview** to try the widget with its saved settings. The admin preview works with an empty list of approved origins.
+2. Open **Preview** to try the saved widget at **320px**, **390px**, or the full available width. The admin preview works with an empty list of approved origins.
 3. In **Settings → Approved origins**, enter one exact HTTPS origin per line, such as `https://example.com`, and save. Add `https://www.example.com` separately if both hostnames serve the page. An empty saved list blocks public embedding for that widget.
 4. Open **Embed links → Create embed link**, then copy the generated iframe markup into a page on an approved website. Verify it on that page.
 
+Each widget generates one embed link. If the widget already has a link, **Create embed link** opens a confirmation. Confirming replaces all existing links for that widget with one new link. Update the embed code on each page that uses it. Links issued by older versions continue to work until you replace or disable them.
+
 Use the widget's settings page to delete it. Confirming deletion removes that widget and its embed links.
 
-Use **Settings → Appearance** on a supported widget to change its accent and panel background. The outer iframe background stays transparent so the host page shows through. Save to apply the colors to this instance's preview and existing embeds. **Reset colors** restores the template palette when you save.
+Use **Style** on a supported widget to change its accent and panel background. The outer iframe background stays transparent so the host page shows through. Save to apply the colors to this instance's preview and existing embeds. **Reset colors** restores the template palette when you save.
+
+Use **Size** to set this widget's iframe heights for compact, mobile, and wide containers. The template supplies the defaults. Enter a whole number between 240 and 2400 pixels or clear the field to restore its default. The generated embed stays full width and uses the height for the space available on the host page. Copy the entire embed block again after changing sizes. If the host strips the style block, the iframe uses the wide height.
+
+The dashboard can be installed as **Widget Console** from the install option in a supporting browser. It opens at the dashboard and uses the same sign-in as the browser.
 
 ### Fee Check
 
@@ -153,6 +159,14 @@ Give each approved widget its own module under [`src/widgets/`](src/widgets/). I
 
 For interactive widgets, set `clientScript` to a static, reviewed script from the widget module. The platform includes it in the document and permits only its exact hash in the script policy. Pass validated instance settings as escaped data in the rendered HTML.
 
-To reuse the appearance editor, declare an `appearance` palette on the template and include `widgetAppearanceCss(appearance, configuration)` in the rendered stylesheet. Use the shared `--widget-*` variables in the template's CSS. The dashboard handles color editing and stores overrides with the instance.
+Use `configurationFields` for template settings and group related fields with `section`. The shared dashboard renders those fields and owns Style, Size, Preview, approved origins, and embed links. Use the existing admin form, status, and input components when extending those controls.
 
-Keep the outer widget canvas transparent in previews and embeds. Use `widgetDocument()` for the shared document styles and apply background colors only to content panels and controls. Check each step of an interactive widget at a 320px iframe width and make sure text, fields, and actions fit without horizontal scrolling.
+To reuse the appearance editor, declare an `appearance` palette on the template and include `widgetAppearanceCss(appearance, configuration)` in the rendered stylesheet. Use the shared `--widget-*` variables in the template's CSS. The dashboard stores color and size overrides with each instance. Reserve `appearance` and `embedHeights` for the platform, and keep the template validator focused on widget-specific settings.
+
+Set `embedHeights` defaults for `compact`, `mobile`, and `wide` based on the template's content. Use the shared sizing module and preview controls when checking those heights. Keep existing widget IDs, embed URLs, and saved settings compatible across updates.
+
+Keep the outer widget canvas transparent in previews and embeds. Use `widgetDocument()` for the shared document styles and apply background colors only to content panels and controls. Check each step at 320px and 390px, and at a wide viewport, to verify that text, fields, and actions fit without horizontal scrolling.
+
+## License
+
+Widget Console is released under the [MIT License](LICENSE). Provider names and logos are third-party marks and remain subject to their owners' rights.

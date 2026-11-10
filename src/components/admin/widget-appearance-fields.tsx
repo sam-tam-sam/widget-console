@@ -69,7 +69,7 @@ export function WidgetAppearanceFields({ defaults, initial }: {
     <fieldset className="console-setting-group console-appearance-fields">
       <legend>Appearance</legend>
       <div className="console-appearance-heading">
-        <p>Pick a color or enter a six-digit HEX code. Save settings to apply the colors to this widget.</p>
+        <p>Pick a color or enter a six-digit hex code. Save the style to apply the colors to this widget.</p>
         <Button type="button" variant="outline" size="sm" disabled={!canReset} onClick={() => setColors(defaults)}>
           Reset colors
         </Button>
