@@ -1,10 +1,10 @@
 # Widget Console
 
-Widget Console is an English-language dashboard for registering widget templates, creating instances, and managing their embed links.
+Widget Console lets an administrator configure widgets, preview them, and publish iframe embeds to approved websites. It runs as one Next.js app with a persistent SQLite database. The dashboard and embeds share one HTTPS hostname. Visitors on approved websites can use embedded widgets without signing in.
 
-## Deploy with Dockhand
+## Quick start with Dockhand
 
-In **Stacks → Deploy from Git**, select the Docker environment where the Cloudflare Tunnel connector can reach the app. Use these stack settings.
+You need a Docker host managed by Dockhand and a hostname you can route through Cloudflare Tunnel. In Dockhand, open **Stacks → From Git** and select the Docker environment running your tunnel connector. [Dockhand Git integration](https://dockhand.pro/manual/#git-integration)
 
 | Setting | Value |
 | --- | --- |
@@ -12,40 +12,90 @@ In **Stacks → Deploy from Git**, select the Docker environment where the Cloud
 | Branch | `main` |
 | Credential | **None (public)** |
 | Stack name | `widget-console` |
-| Compose file path | `compose.yaml` |
+| Compose file path | [`compose.yaml`](compose.yaml) |
 | Build images on deploy | Enabled |
 
-Enter the deployment values in Dockhand's **Environment variables** panel. Compose references these variables and passes the app settings to the container. Keep the password in Dockhand. The public repository contains only variable names and Compose defaults. [Dockhand Git integration](https://dockhand.pro/manual/#git-integration)
+In **Environment variables**, enter the three values below. Replace the hostname with yours and generate a unique password of at least 15 characters. Keep the real password in Dockhand.
 
-| Variable | Value |
+```dotenv
+WIDGET_PUBLIC_ORIGIN=https://widgets.example.com
+WIDGET_ADMIN_USERNAME=widget-admin
+WIDGET_ADMIN_PASSWORD=<replace-with-a-strong-unique-password>
+```
+
+Deploy the stack and wait for the `app` container to show **Healthy**. The image is built on the Docker host from the configured branch. The runtime image contains the Next.js standalone output and the files it needs to serve requests. [Docker multi-stage builds](https://docs.docker.com/build/building/multi-stage/)
+
+### Optional settings
+
+| Variable | Default and purpose |
 | --- | --- |
-| `WIDGET_ADMIN_USERNAME` | Choose the sign-in username. Use 3–64 letters, digits, periods, underscores or hyphens, starting with a letter or digit. |
-| `WIDGET_ADMIN_PASSWORD` | Choose a strong password with at least 15 characters. Common passwords are rejected. |
-| `WIDGET_PUBLIC_ORIGIN` | The HTTPS address for both the dashboard and embeds, for example `https://tools.example.com` |
-| `WIDGET_HOST_PORT` | Port on the Docker host. Defaults to `3100`. |
-| `WIDGET_BIND_IP` | Address on the Docker host. Defaults to `127.0.0.1`. |
-| `WIDGET_VOLUME_NAME` | Named Docker volume for SQLite. Defaults to `widget-console-data`. |
-| `WIDGET_NETWORK_NAME` | Docker network shared with the connector if needed. Defaults to `widget-console`. |
-| `WIDGET_TRUST_CLOUDFLARE` | Defaults to `0`. Set `1` for per-IP sign-in throttling only when all traffic reaching the app comes through a trusted Cloudflare connector. |
+| `WIDGET_HOST_PORT` | `3100` on the Docker host. The app listens on port `3000` inside its container. |
+| `WIDGET_BIND_IP` | `127.0.0.1`, which keeps the published port on the Docker host's loopback interface. |
+| `WIDGET_VOLUME_NAME` | `widget-console-data`, the named volume for SQLite. |
+| `WIDGET_NETWORK_NAME` | `widget-console`, the Docker network the app joins. The app's DNS alias stays `widget-console` even if you rename the network. |
+| `WIDGET_TRUST_CLOUDFLARE` | `0`. Use `1` for per-IP sign-in throttling only when all sign-in traffic reaches the app through a trusted Cloudflare connector. |
 
-Enter the scheme and hostname without a path. Deploy the stack and wait for the `app` container to become healthy. Compose keeps SQLite in a named volume. Use the same volume on redeploy to retain widget settings and link IDs. To rotate the administrator username or password, change the value in Dockhand and redeploy. Existing sessions are revoked when the new credentials take effect.
+Use an exact HTTPS origin for `WIDGET_PUBLIC_ORIGIN`, such as `https://widgets.example.com`, with no path. The username can contain 3–64 letters, digits, periods, underscores, or hyphens and must start with a letter or digit. Common passwords are rejected.
 
-For an existing deployment, set `WIDGET_PUBLIC_ORIGIN` to the address you want to keep. Compose can reuse the old `WIDGET_ADMIN_ORIGIN` during the upgrade. Copy fresh iframe markup for any pages that use the old embed hostname. Existing link approvals apply until you save a list in the widget's Settings.
+## Connect Cloudflare Tunnel
 
-### Connect Cloudflare Tunnel
+1. If `cloudflared` runs in a Docker container on a bridge network, open **Networks → widget-console → Connect container** in Dockhand and select the tunnel connector. Use your custom network name if you set `WIDGET_NETWORK_NAME`. Both containers should appear on that network. [Docker Compose networking](https://docs.docker.com/compose/how-tos/networking/#connecting-multiple-compose-projects)
+2. In Cloudflare, open **Networking → Tunnels → your tunnel → Routes**. Add or edit a **Published application** for the hostname in `WIDGET_PUBLIC_ORIGIN`. Leave **Path** and **HTTP Host Header** blank so the route covers the app and preserves the public host. [Cloudflare Tunnel routing](https://developers.cloudflare.com/tunnel/concepts/routing/) · [Origin parameters](https://developers.cloudflare.com/tunnel/reference/origin-parameters/#httphostheader)
+3. Set **Service URL** based on where the connector runs.
 
-Create one published application route for the hostname in `WIDGET_PUBLIC_ORIGIN`. When `cloudflared` runs on the Docker host, point it to `http://127.0.0.1:3100`, substituting your `WIDGET_HOST_PORT` if changed. Leave **HTTP Host Header** unset to preserve the public hostname. [Cloudflare Tunnel routing](https://developers.cloudflare.com/tunnel/concepts/routing/) · [Origin parameters](https://developers.cloudflare.com/tunnel/reference/origin-parameters/)
+   | Connector setup | Service URL |
+   | --- | --- |
+   | Docker bridge container on the shared network | `http://widget-console:3000` |
+   | Process on the Docker host or container in host network mode | `http://127.0.0.1:3100`, using your `WIDGET_HOST_PORT` if changed |
 
-If `cloudflared` runs in another Docker container on the same host, attach the connector to `widget-console` as an external network in the connector's Compose stack. Use the value of `WIDGET_NETWORK_NAME` if you changed it. Point the route to `http://widget-console:3000`. [Compose networking](https://docs.docker.com/compose/how-tos/networking/)
+4. Save the route and open `/sign-in` on your public hostname. Sign in with the credentials you entered in Dockhand.
 
-Open `/sign-in` on the public hostname and sign in with the credentials from Dockhand.
+Inside a bridge container, `localhost` refers to that container. To keep the connection when Docker recreates `cloudflared`, merge the example below into the connector's Compose file. Use your existing connector service name and keep its current networks. The example assumes the connector uses the default network. Deploy Widget Console first so the named network exists, then apply the connector configuration. [External networks in Compose](https://docs.docker.com/compose/how-tos/networking/#use-an-existing-external-network)
+
+```yaml
+services:
+  cloudflared:
+    networks:
+      - default
+      - widget_console
+
+networks:
+  widget_console:
+    external: true
+    name: widget-console
+```
+
+If you set `WIDGET_NETWORK_NAME`, use that value for `networks.widget_console.name` in the connector configuration.
+
+## Verify and troubleshoot
+
+Run the health check from a shell on the Docker host. Use your configured host port if you changed it.
+
+```sh
+curl -i http://127.0.0.1:3100/api/health
+```
+
+From Dockhand's **Shell** inside the `app` container, use Node and the container port.
+
+```sh
+node -e "fetch('http://127.0.0.1:3000/api/health').then(async r => console.log(r.status, await r.text()))"
+```
+
+Both checks should return HTTP `200` with `{"status":"ok"}`. Test the sign-in page separately over the public HTTPS hostname.
+
+| Symptom | What to check |
+| --- | --- |
+| Cloudflare returns `502 Bad Gateway` | For a bridge connector, verify both containers share the app network and the route points to `http://widget-console:3000`. Check the tunnel logs if the error continues. [Cloudflare Tunnel troubleshooting](https://developers.cloudflare.com/tunnel/troubleshooting/) |
+| `/sign-in` returns `404` | Open the HTTPS hostname in `WIDGET_PUBLIC_ORIGIN` and verify that the tunnel preserves the `Host` header. A direct visit to `localhost:3100/sign-in` returns `404` with the standard public hostname configuration. |
+| The health check returns `503` | Check the HTTPS origin, administrator variables, and whether the container can write to the SQLite volume. |
+| An iframe is blank | Open the page on the approved website. Check the widget's exact approved origin, link status, and the iframe URL. |
 
 ## Manage widgets
 
 1. Choose **New widget**, select a registered template, and save. The new widget opens on its own settings page.
 2. Open **Preview** to try the widget with its saved settings. The admin preview works with an empty list of approved origins.
-3. In the widget's **Settings → Approved origins**, enter each website's exact HTTPS origin on its own line and save. This list controls all links for that widget. An empty saved list blocks public embedding.
-4. Open **Embed links**, create a link, and copy its iframe markup to an approved website. Verify the iframe loads from that site.
+3. In **Settings → Approved origins**, enter one exact HTTPS origin per line, such as `https://example.com`, and save. Add `https://www.example.com` separately if both hostnames serve the page. An empty saved list blocks public embedding for that widget.
+4. Open **Embed links → Create embed link**, then copy the generated iframe markup into a page on an approved website. Verify it on that page.
 
 Use the widget's settings page to delete it. Confirming deletion removes that widget and its embed links.
 
@@ -63,7 +113,13 @@ Select **Processing Fee Calculator** under **New widget**. In the widget's **Set
 
 Open **Preview** to try the calculator. It uses US dollars and offers an illustrative flat rate, published US Square and Stripe rates, and manual monthly totals for the other providers. Use **Enter Custom** to compare a processor outside the catalog. Proposed pricing and savings appear once both channel rates and fees are configured. Visitors' inputs stay in the browser.
 
-## Checks
+## Redeploy and maintain data
+
+- Use **Sync from Git** in Dockhand to deploy a new revision. Keep the same SQLite volume to retain settings, approved origins, and embed link IDs. Back up the database before upgrades. [Docker volumes](https://docs.docker.com/engine/storage/volumes/)
+- To rotate administrator credentials, edit the values in Dockhand and redeploy. Existing sessions are revoked when the new credentials take effect.
+- If the public hostname changes, update `WIDGET_PUBLIC_ORIGIN` and the tunnel route, then replace the iframe markup on pages that use the old hostname. Existing deployments can use `WIDGET_ADMIN_ORIGIN` as a fallback during the upgrade.
+
+## Development checks
 
 Use Node.js 24 and pnpm 11.25.0 for development checks.
 
@@ -80,7 +136,7 @@ Playwright uses a disposable database and HTTPS origins to exercise administrato
 
 ## Adding a template
 
-Give each approved widget its own module under `src/widgets/`. Implement `WidgetTemplate` from `src/widgets/contracts.ts` with a stable key, public catalog metadata, configuration validation, and a renderer. Register the template in `src/widgets/registry.ts`. Keep the widget's styling and behavior in its own module. Escape values inserted into rendered markup and treat all data rendered in an embed as public.
+Give each approved widget its own module under [`src/widgets/`](src/widgets/). Implement the [`WidgetTemplate` contract](src/widgets/contracts.ts) with a stable key, public catalog metadata, configuration validation, and a renderer. Register the template in the [widget registry](src/widgets/registry.ts). Keep the widget's styling and behavior in its own module. Escape values inserted into rendered markup and treat all data rendered in an embed as public.
 
 For interactive widgets, set `clientScript` to a static, reviewed script from the widget module. The platform includes it in the document and permits only its exact hash in the script policy. Pass validated instance settings as escaped data in the rendered HTML.
 
