@@ -29,10 +29,14 @@ const sizeFields = profileKeys.flatMap((key): WidgetConfigurationField[] => {
 
 export const popupFields: readonly WidgetConfigurationField[] = [
   { key: "title", label: "Title", control: "text", section: content },
-  { key: "description", label: "Description", control: "textarea", section: content },
+  { key: "description", label: "Description", description: "Use a short description that fits at your smallest preview width.", control: "textarea", section: content },
   { key: "imageAlt", label: "Image alternative text", description: "Describe information conveyed by the image, including any text visitors need to read.", control: "text", section: content },
   { key: "ctaLabel", label: "Button label", description: "Defaults to Learn more when a button URL is set.", control: "text", section: action },
   { key: "ctaUrl", label: "Button URL", control: "url", section: action },
+  { key: "showActionButton", label: "Show action button", description: "The image still opens the button URL when the button is hidden.", control: "select", section: action, options: [
+    { value: "yes", label: "Yes" },
+    { value: "no", label: "No" },
+  ] },
   { key: "trigger", label: "Open popup", control: "select", section: activation, options: [
     { value: "delay", label: "After a delay" },
     { value: "click", label: "On host element click" },
@@ -77,6 +81,7 @@ export function parsePopupSettings(input: unknown): WidgetConfiguration {
   const imageAlt = optionalWidgetText(value.imageAlt, "Image alternative text", 300);
   const ctaLabel = optionalWidgetText(value.ctaLabel, "Button label", 80);
   const ctaUrl = optionalWidgetText(value.ctaUrl, "Button URL", 2048);
+  const showActionButton = optionalWidgetText(value.showActionButton, "Show action button", 3);
   const trigger = optionalWidgetText(value.trigger, "Open popup", 16);
   const triggerSelector = optionalWidgetText(value.triggerSelector, "Host trigger selector", 240);
   const delaySeconds = optionalInteger(value.delaySeconds, "Delay", 0, 3600);
@@ -89,6 +94,9 @@ export function parsePopupSettings(input: unknown): WidgetConfiguration {
   if (frequency && frequency !== "always" && frequency !== "session") {
     throw new WidgetError("Choose a popup frequency.");
   }
+  if (showActionButton && showActionButton !== "yes" && showActionButton !== "no") {
+    throw new WidgetError("Choose whether to show the action button.");
+  }
 
   const settings: WidgetConfiguration = {};
   if (title) settings.title = title;
@@ -96,6 +104,7 @@ export function parsePopupSettings(input: unknown): WidgetConfiguration {
   if (imageAlt) settings.imageAlt = imageAlt;
   if (ctaLabel) settings.ctaLabel = ctaLabel;
   if (ctaUrl) settings.ctaUrl = widgetHttpsUrl(ctaUrl, "Button URL");
+  if (showActionButton === "no") settings.showActionButton = "no";
   if (trigger) settings.trigger = trigger;
   if (triggerSelector) settings.triggerSelector = triggerSelector;
   if (delaySeconds !== undefined) settings.delaySeconds = delaySeconds;
@@ -107,6 +116,10 @@ export function parsePopupSettings(input: unknown): WidgetConfiguration {
     if (size !== undefined) settings[key] = size;
   }
   return settings;
+}
+
+export function popupShowsAction(configuration: WidgetConfiguration) {
+  return typeof configuration.ctaUrl === "string" && configuration.showActionButton !== "no";
 }
 
 export function popupSize(instance: WidgetInstance, key: SizeProfile) {
@@ -123,10 +136,13 @@ export function popupSize(instance: WidgetInstance, key: SizeProfile) {
   }
 
   const ratio = image.width / image.height;
-  const hasCopy = Boolean(configuration.title || configuration.description || configuration.ctaUrl);
-  const copySpace = hasCopy ? 180 : 0;
-  const automaticWidth = Math.min(image.width, limits.width, Math.max(minHeight, (preferredHeight ?? limits.height) - copySpace) * ratio);
-  const width = preferredWidth ?? Math.max(hasCopy ? 280 : minWidth, Math.round(automaticWidth));
-  const height = preferredHeight ?? Math.min(limits.height, Math.max(minHeight, Math.round(width / ratio) + copySpace));
+  const hasCopy = Boolean(configuration.title || configuration.description);
+  const hasAction = popupShowsAction(configuration);
+  const closeSpace = 60;
+  const footerSpace = (hasCopy ? 116 : 0) + (hasAction ? 60 : 0);
+  const artworkHeight = Math.max(1, (preferredHeight ?? limits.height) - closeSpace - footerSpace);
+  const automaticWidth = Math.min(image.width, limits.width, artworkHeight * ratio);
+  const width = preferredWidth ?? Math.max(hasCopy || hasAction ? 280 : minWidth, Math.round(automaticWidth));
+  const height = preferredHeight ?? Math.min(limits.height, Math.max(minHeight, Math.round(width / ratio) + closeSpace + footerSpace));
   return { width, height, scale };
 }

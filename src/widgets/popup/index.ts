@@ -1,7 +1,7 @@
 import { widgetAppearanceCss } from "../appearance";
 import type { WidgetAppearance, WidgetInstance, WidgetTemplate } from "../contracts";
 import { escapeHtml, widgetDocument } from "../html";
-import { parsePopupSettings, popupFields, popupSize } from "./settings";
+import { parsePopupSettings, popupFields, popupShowsAction, popupSize } from "./settings";
 import { popupStyles } from "./styles";
 
 const name = "Popup";
@@ -10,7 +10,8 @@ const closeIcon = '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" s
 
 function renderPopup({ configuration, image }: WidgetInstance) {
   const { ctaLabel, ctaUrl, description, imageAlt, title } = configuration;
-  const heading = typeof title === "string" ? title : !image && !description && !ctaUrl ? name : "";
+  const showAction = popupShowsAction(configuration);
+  const heading = typeof title === "string" ? title : !image && !description && !showAction ? name : "";
   const actionAttributes = typeof ctaUrl === "string"
     ? `href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener noreferrer"`
     : "";
@@ -25,16 +26,19 @@ function renderPopup({ configuration, image }: WidgetInstance) {
   const copy = [
     heading ? `<h1 id="popup-title" dir="auto">${escapeHtml(heading)}</h1>` : "",
     typeof description === "string" ? `<p dir="auto">${escapeHtml(description)}</p>` : "",
-    actionAttributes
-      ? `<a class="popup-action" dir="auto" ${actionAttributes}>${actionLabel}</a>`
+    showAction
+      ? `<a class="popup-action" dir="auto" ${actionAttributes}><span>${actionLabel}</span></a>`
       : "",
   ].join("");
+  const artwork = image
+    ? `<div class="popup-artwork" style="--popup-image-ratio: ${image.width / image.height}">${media}</div>`
+    : "";
 
   return widgetDocument(name, widgetAppearanceCss(appearance, configuration) + popupStyles, `
-    <main class="popup${copy ? "" : " popup-image-only"}" ${heading ? 'aria-labelledby="popup-title"' : 'aria-label="Popup"'}>
+    <main class="popup${image ? " popup-with-media" : ""}" ${heading ? 'aria-labelledby="popup-title"' : 'aria-label="Popup"'}>
       <button class="popup-close" type="button" data-widget-close aria-label="Close popup">${closeIcon}</button>
-      <div class="popup-scroll"${copy ? ' tabindex="0" role="region" aria-label="Popup content"' : ""}>
-        ${media}
+      <div class="popup-stage" role="region" aria-label="Popup content">
+        ${artwork}
         ${copy ? `<div class="popup-content">${copy}</div>` : ""}
       </div>
     </main>`);

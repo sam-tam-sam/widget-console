@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type FrameLocator, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { adminOrigin, approvedOrigin, startPlatform } from "./platform-server";
 
@@ -9,6 +9,60 @@ async function recordCount(page: Page, widgetId: string) {
     const report = await response.json() as { browserViews: number };
     return report.browserViews;
   }, widgetId);
+}
+
+async function expectPopupToFit(popup: FrameLocator, withAction: boolean) {
+  const panel = popup.getByRole("main");
+  const artwork = popup.getByRole("img", { name: "Offer image" });
+  const close = popup.getByRole("button", { name: "Close popup", exact: true });
+  await expect(artwork).toBeVisible();
+  await expect(artwork).toHaveJSProperty("naturalHeight", 1200);
+  await expect(artwork).toHaveCSS("object-fit", "contain");
+  await expect(close).toBeVisible();
+
+  const action = popup.getByRole("link", { name: "Learn more", exact: true });
+  if (withAction) {
+    await expect(action).toBeVisible();
+    await expect(action).toHaveAttribute("href", "https://example.com/offer");
+  } else {
+    await expect(action).toHaveCount(0);
+  }
+
+  const layout = await panel.evaluate((element) => {
+    const { documentElement, body } = element.ownerDocument;
+    const roots = [documentElement, body, element];
+    const panelBox = element.getBoundingClientRect();
+    const artworkBox = element.querySelector("img")!.getBoundingClientRect();
+    const closeBox = element.querySelector("[data-widget-close]")!.getBoundingClientRect();
+    const actionBox = element.querySelector(".popup-action")?.getBoundingClientRect();
+    return {
+      closeOverlap: closeBox.bottom - artworkBox.top,
+      artworkOverflow: artworkBox.bottom - panelBox.bottom,
+      action: actionBox && {
+        horizontalOffset: Math.abs((actionBox.x + actionBox.width / 2) - (panelBox.x + panelBox.width / 2)),
+        overlap: artworkBox.bottom - actionBox.top,
+        overflow: actionBox.bottom - panelBox.bottom,
+      },
+      horizontal: Math.max(...roots.map((root) => root.scrollWidth - root.clientWidth)),
+      vertical: Math.max(...roots.map((root) => root.scrollHeight - root.clientHeight)),
+      scrollContainers: [...element.querySelectorAll("*")].filter((child) => {
+        const { overflowX, overflowY } = getComputedStyle(child);
+        return ((overflowX === "scroll" || overflowX === "auto") && child.scrollWidth > child.clientWidth) ||
+          ((overflowY === "scroll" || overflowY === "auto") && child.scrollHeight > child.clientHeight);
+      }).length,
+    };
+  });
+  expect(layout.closeOverlap).toBeLessThanOrEqual(1);
+  expect(layout.artworkOverflow).toBeLessThanOrEqual(1);
+  if (withAction) {
+    if (!layout.action) throw new Error("Popup action must have visible bounds");
+    expect(layout.action.horizontalOffset).toBeLessThanOrEqual(2);
+    expect(layout.action.overlap).toBeLessThanOrEqual(1);
+    expect(layout.action.overflow).toBeLessThanOrEqual(1);
+  }
+  expect(layout.horizontal).toBeLessThanOrEqual(1);
+  expect(layout.vertical).toBeLessThanOrEqual(1);
+  expect(layout.scrollContainers).toBe(0);
 }
 
 test("popup uploads persist and only actual opens count on the host", async ({ page, browser }) => {
@@ -33,10 +87,10 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       const png = await page.evaluate(() => {
         const canvas = document.createElement("canvas");
         canvas.width = 960;
-        canvas.height = 480;
+        canvas.height = 1200;
         const context = canvas.getContext("2d")!;
         context.fillStyle = "#124b5c";
-        context.fillRect(0, 0, 960, 480);
+        context.fillRect(0, 0, 960, 1200);
         return canvas.toDataURL("image/png").split(",")[1];
       });
       const bytes = Buffer.from(png, "base64");
@@ -67,7 +121,7 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       });
       try {
         await uploadButton.click();
-        await expect(page.getByText(/Uploaded image.*960 × 480px/)).toBeVisible();
+        await expect(page.getByText(/Uploaded image.*960 × 1200px/)).toBeVisible();
         await expect(page.locator(".console-widget-image img")).toHaveJSProperty("naturalWidth", 960);
       } finally {
         resumeRefresh();
@@ -83,8 +137,14 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
 
     await test.step("derive image dimensions and save responsive overrides", async () => {
       await page.getByRole("link", { name: "Size", exact: true }).click();
-      await expect(page.getByLabel("Desktop width (px)", { exact: true })).toHaveAttribute("placeholder", "960");
-      await expect(page.getByLabel("Desktop height (px)", { exact: true })).toHaveAttribute("placeholder", "480");
+      const desktopWidth = page.getByLabel("Desktop width (px)", { exact: true });
+      const desktopHeight = page.getByLabel("Desktop height (px)", { exact: true });
+      const suggestedWidth = Number(await desktopWidth.getAttribute("placeholder"));
+      const suggestedHeight = Number(await desktopHeight.getAttribute("placeholder"));
+      expect(suggestedWidth).toBeGreaterThan(0);
+      expect(suggestedWidth).toBeLessThan(suggestedHeight);
+      await desktopWidth.fill("520");
+      await desktopHeight.fill("660");
       await page.getByLabel("Phone width (px)", { exact: true }).fill("280");
       await page.getByLabel("Phone height (px)", { exact: true }).fill("220");
       const phoneScale = page.getByRole("slider", { name: "Phone scale (%)", exact: true });
@@ -94,6 +154,14 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       await page.getByRole("button", { name: "Save sizes", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: /sizes saved/i })).toBeVisible();
     });
+
+    await page.goto(widgetPath);
+    await page.getByLabel("Title", { exact: true }).fill("Portrait artwork offer");
+    await page.getByLabel("Description", { exact: true }).fill("See the full offer below.");
+    await page.getByLabel("Button URL", { exact: true }).fill("https://example.com/offer");
+    await expect(page.getByLabel("Show action button", { exact: true })).toHaveValue("yes");
+    await page.getByRole("button", { name: "Save settings", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved." })).toBeVisible();
 
     await page.getByRole("link", { name: "Approved origins", exact: true }).click();
     await page.getByRole("textbox", { name: "Approved origins", exact: true }).fill(approvedOrigin);
@@ -130,6 +198,7 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
         await expect(image).toBeVisible();
         await expect(image).toHaveAttribute("src", /^data:image\/png;base64,/);
         await expect(image).toHaveJSProperty("naturalWidth", 960);
+        await expectPopupToFit(preview, true);
         const previewPanel = page.locator(".widget-host-preview-popup");
         await expect(previewPanel).toHaveCSS("width", "280px");
         await expect(previewPanel).toHaveCSS("transform", "matrix(0.8, 0, 0, 0.8, 0, 0)");
@@ -159,19 +228,22 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
         await opener.click();
         await expect(dialog).toBeVisible();
         await expect(frame).toHaveCount(1);
-        await expect(frame).toHaveCSS("width", width < 600 ? "280px" : "960px");
-        await expect(frame).toHaveCSS("height", width < 600 ? "220px" : "480px");
+        await expect(frame).toHaveCSS("width", width < 600 ? "280px" : "520px");
+        await expect(frame).toHaveCSS("height", width < 600 ? "220px" : "660px");
         await expect.poll(async () => {
           const rect = await frame.boundingBox();
           return rect && [Math.round(rect.width), Math.round(rect.height)];
-        }).toEqual(width < 600 ? [224, 176] : [960, 480]);
+        }).toEqual(width < 600 ? [224, 176] : [520, 660]);
         if (index === 1) {
           expect(await frame.evaluate((element) => element.getAnimations().length)).toBe(0);
         }
-        const image = popup.getByRole("img", { name: "Offer image" });
-        await expect(image).toHaveCSS("object-fit", "contain");
-        await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(960);
-        expect(await popup.locator("html").evaluate((element) => element.scrollWidth)).toBeLessThanOrEqual(width);
+        await expectPopupToFit(popup, true);
+        await expect(popup.getByRole("heading", { name: "Portrait artwork offer", exact: true })).toBeVisible();
+        if (width === 1280) {
+          const action = popup.getByRole("link", { name: "Learn more", exact: true });
+          await action.hover();
+          await expect(action).not.toHaveCSS("transform", "none");
+        }
         const close = popup.getByRole("button", { name: "Close popup", exact: true });
         await expect(close).toBeFocused();
         if (index === 0) await close.press("Escape");
@@ -199,7 +271,7 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       await page.getByLabel("Frequency", { exact: true }).selectOption("session");
       await page.getByRole("button", { name: "Save settings", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: "Settings saved." })).toBeVisible();
-      await host.setViewportSize({ width: 320, height: 520 });
+      await host.setViewportSize({ width: 320, height: 220 });
       const now = Date.now();
       await host.clock.install({ time: now });
       await host.clock.pauseAt(now + 1000);
@@ -211,17 +283,16 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       await host.clock.runFor(1500);
       await expect(dialog).toBeVisible();
       await host.clock.resume();
+      await expectPopupToFit(popup, true);
       await visitor.route("https://example.com/offer", (route) => route.fulfill({ body: "Offer fixture" }));
       const opened = host.waitForEvent("popup");
       await popup.getByRole("img", { name: "Offer image" }).click();
       const destination = await opened;
       await expect(destination).toHaveURL("https://example.com/offer");
       await destination.close();
-      const content = popup.getByRole("region", { name: "Popup content", exact: true });
-      await content.focus();
-      await content.press("End");
-      await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
-      await expect(popup.getByRole("link", { name: "Learn more" })).toHaveAttribute("href", "https://example.com/offer");
+      await host.setViewportSize({ width: 320, height: 194 });
+      await expect(frame).toHaveCSS("height", "170px");
+      await expectPopupToFit(popup, true);
       await popup.getByRole("button", { name: "Close popup", exact: true }).click();
       await expect.poll(() => recordCount(page, widgetId)).toBe(5);
       const reloaded = host.waitForResponse((response) => new URL(response.url()).pathname === `/api/embed-config/${linkId}`);
@@ -232,8 +303,9 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       expect(await recordCount(page, widgetId)).toBe(5);
     });
 
-    await test.step("enforce a custom session limit of two opens", async () => {
+    await test.step("hide the action while retaining the artwork link and enforce a two-open session limit", async () => {
       await page.getByLabel("Open popup", { exact: true }).selectOption("click");
+      await page.getByLabel("Show action button", { exact: true }).selectOption("no");
       await page.getByLabel("Maximum opens per tab session", { exact: true }).fill("2");
       const save = page.waitForResponse((response) => response.request().method() === "POST" && response.url() === page.url());
       await page.getByRole("button", { name: "Save settings", exact: true }).click();
@@ -242,13 +314,16 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       const freshTab = await visitor.newPage();
       const trigger = freshTab.getByRole("button", { name: "Open offer", exact: true });
       const modal = freshTab.getByRole("dialog", { name: "Popup", exact: true });
-      const close = freshTab.frameLocator('iframe[title="Popup content"]').getByRole("button", { name: "Close popup", exact: true });
+      const freshPopup = freshTab.frameLocator('iframe[title="Popup content"]');
+      const close = freshPopup.getByRole("button", { name: "Close popup", exact: true });
       const ready = freshTab.waitForResponse((response) => new URL(response.url()).pathname === `/api/embed-config/${linkId}`);
       await freshTab.goto(hostUrl);
       await (await ready).finished();
       for (const total of [6, 7]) {
         await trigger.click();
         await expect(modal).toBeVisible();
+        await expectPopupToFit(freshPopup, false);
+        await expect(freshPopup.locator("a:has(img)")).toHaveAttribute("href", "https://example.com/offer");
         await close.click();
         await expect(modal).toBeHidden();
         await expect.poll(() => recordCount(page, widgetId)).toBe(total);

@@ -83,7 +83,27 @@ If a Cloudflare security rule challenges requests to your app hostname, exempt w
 
 3. Save the rule and test the embedded widget in a private browser window on a website listed in **Approved origins**. This one-time Cloudflare setting covers future widget links on the same hostname.
 
-Head-script widgets also need successful public GET responses for `/widget-embed/v1.js` (JavaScript), `/api/embed-config/<embed-link-id>` (JSON for an approved origin), and `/widget-media/<image-id>` (the uploaded raster image). If Security Events shows a challenge on these requests, exclude the relevant GET paths on the Widget Console hostname from that challenge rule. Keep the iframe rule above and the challenge protection on the admin routes. A response with `cf-mitigated: challenge` is an HTML challenge page. [Cloudflare challenge responses](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/)
+Head-script widgets also need public GET responses for the loader, the link's configuration, and any uploaded image. If the same custom rule challenges those requests, append this condition with your Widget Console hostname. The configuration and image paths match a single 36-character ID segment so the exception covers future links and replacement images. Widget Console validates the ID, and only approved origins can load a widget's configuration or frame. [Cloudflare expression operators](https://developers.cloudflare.com/ruleset-engine/rules-language/operators/)
+
+```text
+and not (
+  http.host eq "widgets.example.com"
+  and http.request.method eq "GET"
+  and (
+    http.request.uri.path eq "/widget-embed/v1.js"
+    or (
+      http.request.uri.path strict wildcard "/api/embed-config/*-*-4*-*-*"
+      and len(http.request.uri.path) eq 54
+      and not http.request.uri.path strict wildcard "/api/embed-config/*/*"
+    )
+    or (
+      http.request.uri.path strict wildcard "/widget-media/*-*-4*-*-*"
+      and len(http.request.uri.path) eq 50
+      and not http.request.uri.path strict wildcard "/widget-media/*/*"
+    )
+  )
+)
+```
 
 ### Allow PWA install files through Cloudflare
 
@@ -152,7 +172,7 @@ The dashboard can be installed as **Widget Console** from the install option in 
 These two templates use **Embed links → Copy head script**. Add the versioned script to the host page's `<head>` or to an HTML element that emits an executable script on the published page. Save that page's exact HTTPS origin in **Approved origins**. Each script uses the ID of the widget's current embed link. Use **Manage link → Disable link** to stop new displays, and **Enable link** to resume with the same ID. Existing inline widgets continue using their iframe code.
 
 - **Popup** opens after the configured delay or when a visitor clicks a host element that matches **Host trigger selector**. Use a button such as `<button type="button" id="widget-popup-trigger">Show offer</button>`. The session limit defaults to one opening and accepts 1–20 for the visitor's browser tab and current link. If session storage is unavailable, the limit applies to the current page. The close button and Escape dismiss the popup and return keyboard focus. The popup counts only after it opens.
-- **Popup images** can be uploaded in Settings. Use JPEG, PNG, or WebP up to 5 MiB and 20 megapixels. Widget Console checks and processes the image before saving it to the existing SQLite volume. Uploaded images have public asset URLs. The whole image links to **Button URL** when set. **Size** starts from the image dimensions and lets you override the width and height independently for phone, tablet, medium, and desktop. Each profile has a 10–100% **Scale** control that resizes the rendered popup after fitting it to the viewport. Set image alternative text when the artwork conveys information.
+- **Popup images** can be uploaded in Settings. Use JPEG, PNG, or WebP up to 5 MiB and 20 megapixels. Widget Console checks and processes the image before saving it to the existing SQLite volume. Uploaded images have public asset URLs. The whole image links to **Button URL** when set. **Show action button** controls the separate button below the image. **Size** starts from the image dimensions and lets you override the width and height independently for phone, tablet, medium, and desktop. The popup fits the artwork and controls into the available area without internal scrolling. Each profile has a 10–100% **Scale** control. Set image alternative text when the artwork conveys information.
 - **Announcement Bar** uses a dedicated host element above the header, for example `<div id="widget-announcement"></div>`. Set **Mount selector** to match it. For a top-aligned `position: fixed` header, put the slot in a top-level block above the header and set **Fixed header selector** to match the header. The loader reserves room for the bar in the page flow and offsets the fixed header by its height while the bar is visible. Set start and end in UTC. Preview shows the saved schedule in UTC and lets you inspect the artwork or message independently of the display window.
 
 If the host has a restrictive Content Security Policy, it must allow the Widget Console HTTPS origin in `script-src`, `connect-src`, and `frame-src`. If the script or iframe is blocked or the announcement slot is absent, the page still loads. On WordPress, verify the script on the published page. If LiteSpeed rewrites it as `type="litespeed/javascript"`, add the loader's exact URL under **Page Optimization → Tuning → JS Deferred/Delayed Excludes** and verify the published page again. [LiteSpeed JS exclusions](https://docs.litespeedtech.com/lscache/lscwp/pageopt/#js-deferreddelayed-excludes)
