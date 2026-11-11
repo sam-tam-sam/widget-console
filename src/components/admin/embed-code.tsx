@@ -4,7 +4,7 @@ import { useId, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export function EmbedCode({ markup }: { markup: string }) {
+export function EmbedCode({ markup, kind = "iframe" }: { markup: string; kind?: "iframe" | "script" }) {
   const [status, setStatus] = useState<"copied" | "selected">();
   const field = useRef<HTMLTextAreaElement>(null);
   const disclosure = useRef<HTMLDetailsElement>(null);
@@ -27,14 +27,14 @@ export function EmbedCode({ markup }: { markup: string }) {
       <div className="console-copy-row">
         <Button type="button" variant="secondary" onClick={copy}>
           {status === "copied" ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}
-          Copy embed code
+          {kind === "script" ? "Copy head script" : "Copy embed code"}
         </Button>
         {status && <span className="console-copy-status" role="status">{status === "copied" ? "Copied" : "Code selected. Use your copy shortcut."}</span>}
       </div>
       <details className="console-disclosure" ref={disclosure}>
-        <summary>View iframe code</summary>
+        <summary>{kind === "script" ? "View head script" : "View iframe code"}</summary>
         <div className="console-field">
-          <label className="console-field-label" htmlFor={id}>Embed code</label>
+          <label className="console-field-label" htmlFor={id}>{kind === "script" ? "Head script" : "Embed code"}</label>
           <textarea ref={field} id={id} className="console-code-field" rows={3} value={markup} readOnly spellCheck={false} />
         </div>
       </details>

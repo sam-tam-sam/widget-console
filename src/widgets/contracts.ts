@@ -17,9 +17,34 @@ export type WidgetConfigurationField = {
   key: string;
   label: string;
   description?: string;
-  control?: "text" | "url" | "number";
+  control?: "text" | "url" | "number" | "textarea" | "select" | "datetime-local";
   section?: string;
+  tab?: "size";
+  options?: readonly { value: string; label: string }[];
+  min?: number;
+  max?: number;
+  step?: number;
 };
+
+export type WidgetPopupProfile = "phone" | "tablet" | "medium" | "desktop";
+
+export type WidgetHostEmbed = {
+  kind: "popup";
+  trigger: "delay" | "click";
+  delayMs: number;
+  triggerSelector: string;
+  frequency: "always" | "session";
+  sessionLimit: number;
+  sizes: Record<WidgetPopupProfile, { width: number; height: number }>;
+} | {
+  kind: "announcement";
+  mountSelector: string;
+  fixedHeaderSelector: string;
+  startsAt: number | null;
+  endsAt: number | null;
+};
+
+export type WidgetImage = { src: string; width: number; height: number };
 
 export type WidgetTemplateSummary = {
   key: string;
@@ -29,6 +54,8 @@ export type WidgetTemplateSummary = {
   appearance?: WidgetAppearance;
   embedHeight?: number;
   embedHeights?: Partial<WidgetEmbedHeights>;
+  hostEmbed?: WidgetHostEmbed["kind"];
+  imageUpload?: boolean;
 };
 
 export type WidgetInstance = {
@@ -37,10 +64,12 @@ export type WidgetInstance = {
   name: string;
   configuration: WidgetConfiguration;
   approvedOrigins: string[] | null;
+  image?: WidgetImage;
 };
 
 export type WidgetTemplate = WidgetTemplateSummary & {
   clientScript?: string;
+  resolveHostEmbed?(instance: WidgetInstance): WidgetHostEmbed;
   parseConfiguration(value: unknown): WidgetConfiguration;
   render(instance: WidgetInstance): string;
 };

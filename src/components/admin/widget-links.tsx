@@ -26,12 +26,14 @@ function makeEmbedMarkup(origin: string, id: string, title: string, heights: Wid
   ].join("\n");
 }
 
-function LinkCard({ link, origin, embedTitle, heights }: {
+function LinkCard({ link, origin, embedTitle, heights, hostEmbed }: {
   link: WidgetLink;
   origin: string | null;
   embedTitle: string;
   heights: WidgetEmbedHeights;
+  hostEmbed: WidgetTemplateSummary["hostEmbed"];
 }) {
+  const scriptUrl = origin ? new URL("/widget-embed/v1.js", origin).href : "";
   return (
     <li data-link-id={link.id} className="console-link-record">
       <div className="console-link-heading">
@@ -45,9 +47,19 @@ function LinkCard({ link, origin, embedTitle, heights }: {
         </span>
       </div>
       {origin ? (
-        <EmbedCode markup={makeEmbedMarkup(origin, link.id, embedTitle, heights)} />
+        hostEmbed ? (
+          <div className="console-field">
+            <p className="console-empty-note">Add the script to the page’s <code>&lt;head&gt;</code>.</p>
+            {hostEmbed === "announcement" && (
+              <p className="console-empty-note">Place the mount element configured in Settings above the header.</p>
+            )}
+            <EmbedCode kind="script" markup={`<script src="${escapeHtml(scriptUrl)}" data-widget-id="${escapeHtml(link.id)}" defer></script>`} />
+          </div>
+        ) : (
+          <EmbedCode markup={makeEmbedMarkup(origin, link.id, embedTitle, heights)} />
+        )
       ) : (
-        <p className="console-empty-note">Configure the application origin to generate iframe code.</p>
+        <p className="console-empty-note">Configure the application origin to generate embed code.</p>
       )}
       <details className="console-disclosure console-link-controls">
         <summary>Manage link</summary>
@@ -115,11 +127,11 @@ export function WidgetLinks({ widget, links, template }: {
         {!current ? (
           <div className="console-empty">
             <CodeXml size={21} aria-hidden="true" />
-            <div><h3>No embed link yet</h3><p>Create a link to get the iframe code for this widget.</p></div>
+            <div><h3>No embed link yet</h3><p>Create a link to get the {template?.hostEmbed ? "head script" : "iframe code"} for this widget.</p></div>
           </div>
         ) : (
           <ul className="console-records">
-            <LinkCard key={current.id} link={current} origin={origin} embedTitle={template?.name ?? widget.name} heights={heights} />
+            <LinkCard key={current.id} link={current} origin={origin} embedTitle={template?.name ?? widget.name} heights={heights} hostEmbed={template?.hostEmbed} />
           </ul>
         )}
       </section>

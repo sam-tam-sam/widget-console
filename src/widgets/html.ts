@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { WidgetInstance, WidgetTemplate } from "./contracts";
+import { hostFrameScript, type WidgetHostFrame } from "./host-frame";
 
 const htmlEntities: Record<string, string> = {
   "&": "&amp;",
@@ -29,19 +30,33 @@ export function widgetDocument(title: string, css: string, body: string): string
 </html>`;
 }
 
-export function renderWidgetDocument(template: WidgetTemplate, instance: WidgetInstance) {
-  const html = template.render(instance);
-  if (!template.clientScript) return { html, scriptHashes: [] };
-
+export function appendWidgetScript(html: string, source: string, attributes = "") {
   // Hash the exact reviewed script that the HTML parser receives.
-  const script = template.clientScript.replace(/\r\n?/g, "\n");
+  const script = source.replace(/\r\n?/g, "\n");
   const end = html.lastIndexOf("</body>");
   if (end < 0 || /<\/script/i.test(script)) {
     throw new Error("Invalid widget script or document body.");
   }
   const hash = createHash("sha256").update(script).digest("base64");
   return {
-    html: `${html.slice(0, end)}<script>${script}</script>${html.slice(end)}`,
-    scriptHashes: [`'sha256-${hash}'`],
+    html: `${html.slice(0, end)}<script${attributes}>${script}</script>${html.slice(end)}`,
+    hash: `'sha256-${hash}'`,
   };
+}
+
+export function renderWidgetDocument(template: WidgetTemplate, instance: WidgetInstance, frame?: WidgetHostFrame) {
+  let html = template.render(instance);
+  const scriptHashes: string[] = [];
+  if (template.clientScript) {
+    const script = appendWidgetScript(html, template.clientScript);
+    html = script.html;
+    scriptHashes.push(script.hash);
+  }
+  if (frame && template.hostEmbed) {
+    const attributes = ` data-parent-origin="${escapeHtml(frame.parentOrigin)}" data-channel="${escapeHtml(frame.channel)}" data-kind="${template.hostEmbed}"`;
+    const script = appendWidgetScript(html, hostFrameScript, attributes);
+    html = script.html;
+    scriptHashes.push(script.hash);
+  }
+  return { html, scriptHashes };
 }

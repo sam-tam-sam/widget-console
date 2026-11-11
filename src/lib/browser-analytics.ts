@@ -1,10 +1,11 @@
 import "server-only";
 
-import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { trustedCloudflareIp } from "@/lib/client-ip";
 import { applicationOrigin } from "@/lib/embeds";
 import { analyticsSecret, browserPolicyDigest, recordBrowserEmbedLoad } from "@/lib/widget-analytics";
-import { escapeHtml } from "@/widgets/html";
+import { appendWidgetScript, escapeHtml } from "@/widgets/html";
+import { hostOpenedEvent } from "@/widgets/host-frame";
 
 const lifetimeMs = 5 * 60_000;
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -12,9 +13,10 @@ const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-
 // A nested navigation keeps the existing /embed/* iframe delivery policy. It
 // carries a short-lived receipt, never a publisher credential or admin cookie
 // value. CSP still prevents the outer script running on an unapproved site.
-const reportScript = `(() => {
+const reportScript = (waitForOpen: boolean) => `(() => {
   const target = document.currentScript.dataset.widgetView;
   if (!target || window.top === window) return;
+  ${waitForOpen ? "const report = () => {" : ""}
   const frame = document.createElement("iframe");
   frame.hidden = true;
   frame.tabIndex = -1;
@@ -23,8 +25,10 @@ const reportScript = `(() => {
   frame.referrerPolicy = "no-referrer";
   frame.src = target;
   document.body.appendChild(frame);
+  ${waitForOpen ? `};
+  if (document.documentElement.dataset.widgetOpened === "true") report();
+  else document.addEventListener(${JSON.stringify(hostOpenedEvent)}, report, { once: true });` : ""}
 })();`;
-const reportHash = `'sha256-${createHash("sha256").update(reportScript).digest("base64")}'`;
 
 function sourceKey(secret: Buffer, headers: Headers) {
   return createHmac("sha256", secret)
@@ -32,7 +36,7 @@ function sourceKey(secret: Buffer, headers: Headers) {
 }
 
 /** Issues a receipt without counting the initial (forgeable) document GET. */
-export function browserAnalyticsDocument(html: string, id: string, origins: readonly string[], headers: Headers) {
+export function browserAnalyticsDocument(html: string, id: string, origins: readonly string[], headers: Headers, waitForOpen = false) {
   const app = applicationOrigin();
   if (!app || !origins.length) return null;
   let origin = "";
@@ -41,8 +45,6 @@ export function browserAnalyticsDocument(html: string, id: string, origins: read
     try { origin = new URL(referer).origin; } catch { return null; }
     if (!origins.includes(origin)) return null;
   }
-  const end = html.lastIndexOf("</body>");
-  if (end < 0) return null;
   const now = Date.now();
   const secret = analyticsSecret(now);
   const payload = Buffer.from(JSON.stringify([1, id, origin, sourceKey(secret, headers).toString("hex"), now, randomUUID(), browserPolicyDigest(origins)])).toString("base64url");
@@ -50,8 +52,7 @@ export function browserAnalyticsDocument(html: string, id: string, origins: read
   const frameSource = new URL(`/embed/${id}`, app).href;
   const url = `${frameSource}?view=${payload}.${signature}`;
   return {
-    html: `${html.slice(0, end)}<script data-widget-view="${escapeHtml(url)}">${reportScript}</script>${html.slice(end)}`,
-    hash: reportHash,
+    ...appendWidgetScript(html, reportScript(waitForOpen), ` data-widget-view="${escapeHtml(url)}"`),
     frameSource,
   };
 }

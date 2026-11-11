@@ -32,3 +32,44 @@
   outline: 1px solid var(--border);
   border-radius: .65rem;
 }
+
+.widget-host-preview {
+  position: relative;
+  max-width: 100%;
+  margin-inline: auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: .65rem;
+  background: var(--background);
+}
+
+.widget-host-preview:has(.widget-host-preview-overlay) { isolation: isolate; }
+
+.widget-host-preview-page { min-height: clamp(23rem, 65vh, 43rem); }
+
+.widget-host-preview-header {
+  padding: .85rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+  font-size: .875rem;
+  font-weight: 600;
+}
+
+.widget-host-preview-main { padding: 1rem; }
+
+.widget-host-preview-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / .68);
+}
+
+.widget-host-preview-popup { max-width: 100%; max-height: 100%; }
+
+.widget-host-preview-frame {
+  display: block;
+  width: 100%;
+  border: 0;
+}

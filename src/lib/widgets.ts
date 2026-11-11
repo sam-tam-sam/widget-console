@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { getDb } from "@/lib/db";
-import { normalizeOrigins } from "@/lib/embeds";
+import { applicationOrigin, normalizeOrigins } from "@/lib/embeds";
 import {
   WidgetError,
   type WidgetConfiguration,
@@ -11,6 +11,7 @@ import {
 } from "@/widgets/contracts";
 import { registeredTemplates } from "@/widgets/registry";
 import { renderWidgetDocument } from "@/widgets/html";
+import type { WidgetHostFrame } from "@/widgets/host-frame";
 import { parseWidgetAppearance } from "@/widgets/appearance";
 import { defaultWidgetEmbedHeights, parseWidgetEmbedHeights, resolveWidgetEmbedHeights } from "@/widgets/embed-size";
 
@@ -64,6 +65,14 @@ function storage(): DatabaseSync {
         ) STRICT;
         CREATE INDEX IF NOT EXISTS widget_embed_links_instance_id
           ON widget_embed_links(instance_id);
+        CREATE TABLE IF NOT EXISTS widget_images (
+          instance_id TEXT PRIMARY KEY REFERENCES widget_instances(id) ON DELETE CASCADE,
+          id TEXT NOT NULL UNIQUE,
+          content_type TEXT NOT NULL CHECK (content_type IN ('image/jpeg', 'image/png', 'image/webp')),
+          width INTEGER NOT NULL CHECK (width > 0),
+          height INTEGER NOT NULL CHECK (height > 0),
+          bytes BLOB NOT NULL
+        ) STRICT;
       `);
       const column = db.prepare("SELECT 1 FROM pragma_table_info('widget_instances') WHERE name = ?")
         .get("approved_origins_json");
@@ -79,13 +88,45 @@ function storage(): DatabaseSync {
 }
 
 function instanceFromRow(row: InstanceRow): WidgetInstance {
+  const template = registeredTemplates().find(({ key }) => key === row.template_key);
+  const image = template?.imageUpload ? readImageMetadata(row.id) : undefined;
   return {
     id: row.id,
     templateKey: row.template_key,
     name: row.name,
     configuration: JSON.parse(row.config_json) as WidgetConfiguration,
     approvedOrigins: row.approved_origins_json === null ? null : JSON.parse(row.approved_origins_json) as string[],
+    ...(image && { image }),
   };
+}
+
+function readImageMetadata(instanceId: string) {
+  const origin = applicationOrigin();
+  if (!origin) return undefined;
+  const image = storage().prepare("SELECT id, width, height FROM widget_images WHERE instance_id = ?")
+    .get(instanceId) as { id: string; width: number; height: number } | undefined;
+  if (!image) return undefined;
+  return { src: new URL(`/widget-media/${image.id}`, origin).href, width: image.width, height: image.height };
+}
+
+export function readWidgetImage(id: string) {
+  if (!uuidPattern.test(id)) return null;
+  return storage().prepare("SELECT content_type, bytes FROM widget_images WHERE id = ?").get(id) as
+    { content_type: string; bytes: Uint8Array } | undefined;
+}
+
+export function saveWidgetImage(instanceId: string, image: { contentType: string; width: number; height: number; bytes: Uint8Array }) {
+  const result = storage().prepare(`
+    INSERT INTO widget_images (instance_id, id, content_type, width, height, bytes)
+    SELECT id, ?, ?, ?, ?, ? FROM widget_instances WHERE id = ?
+    ON CONFLICT (instance_id) DO UPDATE SET id = excluded.id, content_type = excluded.content_type,
+      width = excluded.width, height = excluded.height, bytes = excluded.bytes
+  `).run(randomUUID(), image.contentType, image.width, image.height, image.bytes, instanceId);
+  if (result.changes !== 1) throw new WidgetError("This widget instance is unavailable.");
+}
+
+export function removeWidgetImage(instanceId: string) {
+  storage().prepare("DELETE FROM widget_images WHERE instance_id = ?").run(instanceId);
 }
 
 function linkFromRow(row: LinkRow): WidgetLink {
@@ -123,8 +164,8 @@ function readInstance(db: DatabaseSync, id: string): InstanceRow {
 }
 
 export function listTemplates(): WidgetTemplateSummary[] {
-  return registeredTemplates().map(({ key, name, description, configurationFields, appearance, embedHeight, embedHeights }) =>
-    ({ key, name, description, configurationFields, appearance, embedHeight, embedHeights }),
+  return registeredTemplates().map(({ key, name, description, configurationFields, appearance, embedHeight, embedHeights, hostEmbed, imageUpload }) =>
+    ({ key, name, description, configurationFields, appearance, embedHeight, embedHeights, hostEmbed, imageUpload }),
   );
 }
 
@@ -278,18 +319,14 @@ export function updateLink(input: {
   return linkFromRow(updated);
 }
 
-function renderSavedInstance(row: InstanceRow) {
+function resolveSavedInstance(row: InstanceRow) {
   const template = registeredTemplates().find((candidate) => candidate.key === row.template_key);
   if (!template) return null;
 
   try {
-    const instance = instanceFromRow(row);
-    const configuration = parseInstanceConfiguration(template, instance.configuration);
-    return {
-      name: instance.name,
-      embedHeights: resolveWidgetEmbedHeights(template, configuration.embedHeights),
-      ...renderWidgetDocument(template, { ...instance, configuration }),
-    };
+    const saved = instanceFromRow(row);
+    const instance = { ...saved, configuration: parseInstanceConfiguration(template, saved.configuration) };
+    return { template, instance, hostEmbed: template.resolveHostEmbed?.(instance) };
   } catch (error) {
     if (error instanceof WidgetError || error instanceof SyntaxError) return null;
     throw error;
@@ -297,10 +334,18 @@ function renderSavedInstance(row: InstanceRow) {
 }
 
 /** Renders saved public widget content for the authenticated admin preview. */
-export function renderInstancePreview(id: string) {
+export function renderInstancePreview(id: string, frame?: WidgetHostFrame) {
   if (!uuidPattern.test(id)) return null;
   const row = findInstance(storage(), id);
-  return row ? renderSavedInstance(row) : null;
+  const saved = row && resolveSavedInstance(row);
+  if (!saved) return null;
+  const { template, instance, hostEmbed } = saved;
+  return {
+    name: instance.name,
+    embedHeights: resolveWidgetEmbedHeights(template, instance.configuration.embedHeights),
+    hostEmbed,
+    ...renderWidgetDocument(template, instance, frame),
+  };
 }
 
 function findEnabledEmbed(id: string) {
@@ -330,11 +375,25 @@ export function resolveEmbedPolicy(id: string) {
   return origins ? { widgetId: row.id, origins } : null;
 }
 
-export function resolveEmbed(id: string) {
+export function resolveHostEmbed(id: string, origin: string) {
+  const row = findEnabledEmbed(id);
+  if (!row || !embedOrigins(row)?.includes(origin)) return null;
+  return resolveSavedInstance(row)?.hostEmbed ?? null;
+}
+
+export function resolveEmbed(id: string, frame?: WidgetHostFrame) {
   const row = findEnabledEmbed(id);
   if (!row) return null;
   const origins = embedOrigins(row);
   if (!origins) return null;
-  const preview = renderSavedInstance(row);
-  return preview ? { origins, html: preview.html, scriptHashes: preview.scriptHashes } : null;
+  const saved = resolveSavedInstance(row);
+  if (!saved) return null;
+  const { template, instance, hostEmbed } = saved;
+  if (hostEmbed && (!frame || !origins.includes(frame.parentOrigin))) return null;
+  if (hostEmbed?.kind === "announcement") {
+    const now = Date.now();
+    if ((hostEmbed.startsAt !== null && now < hostEmbed.startsAt) ||
+      (hostEmbed.endsAt !== null && now >= hostEmbed.endsAt)) return null;
+  }
+  return { origins, waitForOpen: Boolean(hostEmbed), ...renderWidgetDocument(template, instance, frame) };
 }

@@ -51,14 +51,15 @@ function configuration(
   data: FormData,
   templateKey: string,
   previous?: WidgetConfiguration,
+  tab: "settings" | "size" = "settings",
 ) {
   const template = listTemplates().find(({ key }) => key === templateKey);
   const fields = (template?.configurationFields ?? [])
-    .filter(({ key }) => data.has(`config.${key}`));
-  const colors = template?.appearance
+    .filter(({ key, tab: placement }) => (placement ?? "settings") === tab && data.has(`config.${key}`));
+  const colors = tab === "settings" && template?.appearance
     ? widgetAppearanceFields.filter(({ key }) => data.has(widgetAppearanceInputName(key)))
     : [];
-  const text = fields.length ? "" : field(data, "configuration").trim();
+  const text = tab === "settings" && !template?.configurationFields ? field(data, "configuration").trim() : "";
   if (!text && !fields.length && !colors.length) return undefined;
 
   const value = { ...previous };
@@ -144,6 +145,18 @@ export async function updateWidgetSizeAction(_state: FormResult, data: FormData)
   return submit(() => {
     const instance = getInstance(field(data, "id"));
     if (!instance) throw new WidgetError("This widget instance is unavailable.");
+    const template = listTemplates().find(({ key }) => key === instance.templateKey);
+    if (template?.hostEmbed) {
+      if (!template.configurationFields?.some(({ tab }) => tab === "size")) {
+        throw new WidgetError("This widget adjusts its size automatically.");
+      }
+      updateInstance({
+        id: instance.id,
+        name: instance.name,
+        configuration: configuration(data, instance.templateKey, instance.configuration, "size"),
+      });
+      return { instanceId: instance.id, message: "Popup sizes saved." };
+    }
     const embedHeights = Object.fromEntries(widgetEmbedProfiles.map(({ key }) => {
       const value = data.get(widgetEmbedHeightInputName(key));
       if (typeof value !== "string") throw new WidgetError("Enter valid embed heights.");

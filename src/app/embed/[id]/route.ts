@@ -1,6 +1,7 @@
 import { embedSecurityHeaders } from "@/lib/embeds";
 import { resolveEmbed } from "@/lib/widgets";
 import { acceptBrowserReceipt, browserAnalyticsDocument } from "@/lib/browser-analytics";
+import { widgetChannelPattern } from "@/widgets/host-frame";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,19 +22,25 @@ export async function GET(
   }
 
   const { id } = await params;
-  const receipt = new URL(request.url).searchParams.get("view");
+  const query = new URL(request.url).searchParams;
+  const receipt = query.get("view");
   if (receipt !== null) {
     const status = acceptBrowserReceipt(request.headers, id, receipt);
     const headers = embedSecurityHeaders([]);
     if (status === 429) headers.set("Retry-After", "60");
     return new Response(null, { status, headers });
   }
-  const embed = resolveEmbed(id);
+  const parentOrigin = query.get("parent");
+  const channel = query.get("channel");
+  const frame = query.get("host") === "1" && parentOrigin && channel && widgetChannelPattern.test(channel)
+    ? { parentOrigin, channel }
+    : undefined;
+  const embed = resolveEmbed(id, frame);
   if (!embed) return unavailable("This widget is unavailable.", 404);
 
   let analytics: ReturnType<typeof browserAnalyticsDocument> = null;
   try {
-    analytics = browserAnalyticsDocument(embed.html, id, embed.origins, request.headers);
+    analytics = browserAnalyticsDocument(embed.html, id, embed.origins, request.headers, embed.waitForOpen);
   } catch {
     // Analytics must never interrupt delivery of a working widget.
     console.warn("Widget analytics receipt unavailable.");

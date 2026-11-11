@@ -1,7 +1,9 @@
 import { updateWidgetSizeAction } from "@/app/(admin)/admin/actions";
 import { AdminForm } from "@/components/admin/form";
+import { WidgetConfigurationFields } from "@/components/admin/widget-configuration-fields";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { renderInstancePreview } from "@/lib/widgets";
 import type { WidgetInstance, WidgetTemplateSummary } from "@/widgets/contracts";
 import {
   defaultWidgetEmbedHeights,
@@ -13,6 +15,36 @@ import {
 } from "@/widgets/embed-size";
 
 export function WidgetSizeSettings({ widget, template }: { widget: WidgetInstance; template?: WidgetTemplateSummary }) {
+  if (template?.hostEmbed) {
+    const fields = template.configurationFields?.filter(({ tab }) => tab === "size") ?? [];
+    const hostEmbed = fields.length ? renderInstancePreview(widget.id)?.hostEmbed : undefined;
+    const placeholders: Record<string, string> = {};
+    if (hostEmbed?.kind === "popup") {
+      for (const [device, { width, height }] of Object.entries(hostEmbed.sizes)) {
+        placeholders[`${device}Width`] = String(width);
+        placeholders[`${device}Height`] = String(height);
+      }
+    }
+    return (
+      <div className="console-editor">
+        <section className="console-panel console-form-panel" aria-labelledby="widget-size-heading">
+          <div className="console-section-heading">
+            <h2 id="widget-size-heading">{fields.length ? "Popup dimensions" : "Announcement size"}</h2>
+            <p>{fields.length
+              ? "Enter a width and height in pixels for each screen. Leave a field empty to use the automatic size. The popup shrinks to fit the available screen."
+              : "The announcement matches the width of its mount element and grows to fit its content."}</p>
+          </div>
+          {fields.length > 0 && (
+            <AdminForm action={updateWidgetSizeAction} label="Save sizes" className="console-form console-form-spacious">
+              <input type="hidden" name="id" value={widget.id} />
+              <WidgetConfigurationFields fields={fields} values={widget.configuration} placeholders={placeholders} />
+            </AdminForm>
+          )}
+        </section>
+      </div>
+    );
+  }
+
   const defaults = defaultWidgetEmbedHeights(template);
   const overrides = parseWidgetEmbedHeights(widget.configuration.embedHeights, defaults);
 

@@ -2,36 +2,12 @@ import { updateInstanceAction, updateWidgetOriginsAction } from "@/app/(admin)/a
 import { AdminForm } from "@/components/admin/form";
 import { DeleteWidget } from "@/components/admin/delete-widget";
 import { WidgetAppearanceFields } from "@/components/admin/widget-appearance-fields";
+import { WidgetConfigurationFields } from "@/components/admin/widget-configuration-fields";
+import { WidgetImageSettings } from "@/components/admin/widget-image-settings";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { resolveWidgetAppearance } from "@/widgets/appearance";
-import type { WidgetAppearance, WidgetConfigurationField, WidgetInstance, WidgetTemplateSummary } from "@/widgets/contracts";
-
-function ConfigurationField({ field, value }: { field: WidgetConfigurationField; value: unknown }) {
-  const id = `widget-field-${field.key}`;
-  const input = {
-    id,
-    name: `config.${field.key}`,
-    defaultValue: typeof value === "string" || typeof value === "number" ? value : "",
-    "aria-describedby": field.description ? `${id}-help` : undefined,
-  };
-  return (
-    <div className="console-field">
-      <Label htmlFor={id}>{field.label}</Label>
-      {field.control ? (
-        <Input
-          {...input}
-          type={field.control}
-          min={field.control === "number" ? 0 : undefined}
-          step={field.control === "number" ? "any" : undefined}
-        />
-      ) : (
-        <textarea {...input} className="console-text-field" rows={4} />
-      )}
-      {field.description && <small id={`${id}-help`}>{field.description}</small>}
-    </div>
-  );
-}
+import type { WidgetAppearance, WidgetInstance, WidgetTemplateSummary } from "@/widgets/contracts";
 
 export function WidgetSettings({
   widget,
@@ -42,19 +18,14 @@ export function WidgetSettings({
   template?: WidgetTemplateSummary;
   linkCount: number;
 }) {
-  const sections = new Map<string, WidgetConfigurationField[]>();
-  for (const field of template?.configurationFields ?? []) {
-    const section = field.section ?? "";
-    const fields = sections.get(section) ?? [];
-    fields.push(field);
-    sections.set(section, fields);
-  }
+  const fields = template?.configurationFields?.filter(({ tab }) => tab !== "size") ?? [];
   const templateConfiguration = { ...widget.configuration };
   delete templateConfiguration.appearance;
   delete templateConfiguration.embedHeights;
 
   return (
     <div className="console-editor console-stack">
+      {template?.imageUpload && <WidgetImageSettings id={widget.id} image={widget.image} />}
       <section className="console-panel console-form-panel" aria-labelledby="widget-settings-heading">
         <div className="console-section-heading">
           <h2 id="widget-settings-heading">Widget settings</h2>
@@ -66,17 +37,7 @@ export function WidgetSettings({
             <Label htmlFor="widget-name">Widget name</Label>
             <Input id="widget-name" name="name" defaultValue={widget.name} required maxLength={100} />
           </div>
-          {[...sections].map(([section, fields]) => {
-            const controls = fields.map((field) => (
-              <ConfigurationField key={field.key} field={field} value={widget.configuration[field.key]} />
-            ));
-            return section ? (
-              <fieldset key={section} className="console-setting-group">
-                <legend>{section}</legend>
-                <div className="console-setting-grid">{controls}</div>
-              </fieldset>
-            ) : controls;
-          })}
+          <WidgetConfigurationFields fields={fields} values={widget.configuration} />
           {template && !template.configurationFields && (
             <details className="console-disclosure">
               <summary>Advanced configuration</summary>

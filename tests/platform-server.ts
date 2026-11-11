@@ -95,6 +95,37 @@ function testCertificate() {
   };
 }
 
+function scriptedHost(id: string, query: URLSearchParams) {
+  const snippet = `<script defer src="${adminOrigin}/widget-embed/v1.js" data-widget-id="${id}"></script>`;
+  return `<!doctype html>
+  <html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Script embed host fixture</title>
+    ${snippet}${query.get("duplicate") === "1" ? snippet : ""}
+    <style>
+      body { margin: 0; font: 1rem/1.5 system-ui, sans-serif; color: #20332b; background: #f4f5f2; }
+      #site-header {
+        position: fixed; inset: 0 0 auto; z-index: 10; height: 64px; box-sizing: border-box;
+        display: flex; align-items: center; padding-inline: 20px; background: #14392b; color: white;
+      }
+      main { padding: 64px 20px 20px; min-height: 160vh; }
+      button { font: inherit; padding: 10px 14px; }
+    </style>
+  </head>
+  <body>
+    ${query.get("slot") === "missing" ? "" : '<div id="announcement-slot"></div>'}
+    <header id="site-header">Demo site</header>
+    <main>
+      <h1>Widget embed demo</h1>
+      <p>The navigation and controls on this page belong to the host.</p>
+      <button id="offer-trigger" type="button">Open offer</button>
+      <button id="host-control" type="button">Host control</button>
+    </main>
+  </body>
+  </html>`;
+}
+
 export async function startPlatform(credentials: Credentials, {
   trustCloudflare = false,
   publisherKeys,
@@ -111,6 +142,11 @@ export async function startPlatform(credentials: Credentials, {
     const host = incoming.headers.host ?? "";
     if (hostPages.has(host)) {
       const url = new URL(incoming.url ?? "/", `https://${host}`);
+      const scriptId = /^\/script\/([a-f0-9-]{36})$/.exec(url.pathname)?.[1];
+      if (scriptId) {
+        outgoing.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(scriptedHost(scriptId, url.searchParams));
+        return;
+      }
       const id = /^\/([a-f0-9-]{36})$/i.exec(url.pathname)?.[1];
       if (!id) {
         outgoing.writeHead(404).end();

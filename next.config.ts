@@ -5,6 +5,10 @@ const config: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   serverExternalPackages: ["argon2"],
+  outputFileTracingIncludes: {
+    // Sharp loads libvips through its native bindings at runtime.
+    "/api/admin/widget-image/*": ["./node_modules/.pnpm/@img+sharp-*/node_modules/@img/sharp-*/lib/*"],
+  },
   async rewrites() {
     // Installed apps may still reference the original icon URLs.
     return [

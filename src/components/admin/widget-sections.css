@@ -28,6 +28,12 @@
 .console-widget-tabs a[aria-current="page"] { background: var(--primary); color: var(--primary-foreground); }
 .console-widget-tabs svg { flex: 0 0 auto; }
 
+.console-widget-image { display: grid; justify-items: start; gap: .4rem; margin-block: .85rem; }
+.console-widget-image img { max-width: 100%; width: auto; max-height: 12rem; height: auto; }
+.console-widget-image figcaption { color: var(--muted-foreground); font-size: .83rem; }
+.console-widget-image-input { padding-block: .55rem; }
+.console-image-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+
 @media (max-width: 38rem) {
   .console-widget-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .console-widget-tabs a { flex-direction: column; gap: .25rem; padding-inline: .2rem; }
