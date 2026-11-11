@@ -77,6 +77,13 @@ function storage(): DatabaseSync {
       const column = db.prepare("SELECT 1 FROM pragma_table_info('widget_instances') WHERE name = ?")
         .get("approved_origins_json");
       if (!column) db.exec("ALTER TABLE widget_instances ADD COLUMN approved_origins_json TEXT");
+      // Remove saved instances of the retired template and revoke their embed links.
+      db.exec(`
+        DELETE FROM widget_embed_links WHERE instance_id IN (
+          SELECT id FROM widget_instances WHERE template_key = 'announcement'
+        );
+        DELETE FROM widget_instances WHERE template_key = 'announcement';
+      `);
       db.exec("COMMIT");
     } catch (error) {
       db.exec("ROLLBACK");
@@ -379,7 +386,8 @@ export function resolveEmbedPolicy(id: string) {
 export function resolveHostEmbed(id: string, origin: string) {
   const row = findEnabledEmbed(id);
   if (!row || !embedOrigins(row)?.includes(origin)) return null;
-  return resolveSavedInstance(row)?.hostEmbed ?? null;
+  const saved = resolveSavedInstance(row);
+  return saved?.instance.image ? saved.hostEmbed ?? null : null;
 }
 
 export function resolveEmbed(id: string, frame?: WidgetHostFrame) {
@@ -390,11 +398,6 @@ export function resolveEmbed(id: string, frame?: WidgetHostFrame) {
   const saved = resolveSavedInstance(row);
   if (!saved) return null;
   const { template, instance, hostEmbed } = saved;
-  if (hostEmbed && (!frame || !origins.includes(frame.parentOrigin))) return null;
-  if (hostEmbed?.kind === "announcement") {
-    const now = Date.now();
-    if ((hostEmbed.startsAt !== null && now < hostEmbed.startsAt) ||
-      (hostEmbed.endsAt !== null && now >= hostEmbed.endsAt)) return null;
-  }
+  if (hostEmbed && (!instance.image || !frame || !origins.includes(frame.parentOrigin))) return null;
   return { origins, waitForOpen: Boolean(hostEmbed), ...renderWidgetDocument(template, instance, frame) };
 }

@@ -50,9 +50,6 @@ function LinkCard({ link, origin, embedTitle, heights, hostEmbed }: {
         hostEmbed ? (
           <div className="console-field">
             <p className="console-empty-note">Add the script to the page’s <code>&lt;head&gt;</code> or to an HTML element that runs scripts on the published page.</p>
-            {hostEmbed === "announcement" && (
-              <p className="console-empty-note">Place the mount element configured in Settings above the header.</p>
-            )}
             <EmbedCode kind="script" markup={`<script src="${escapeHtml(scriptUrl)}" data-widget-id="${escapeHtml(link.id)}" defer></script>`} />
           </div>
         ) : (

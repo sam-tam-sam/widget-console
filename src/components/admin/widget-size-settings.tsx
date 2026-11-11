@@ -17,9 +17,9 @@ import {
 export function WidgetSizeSettings({ widget, template }: { widget: WidgetInstance; template?: WidgetTemplateSummary }) {
   if (template?.hostEmbed) {
     const fields = template.configurationFields?.filter(({ tab }) => tab === "size") ?? [];
-    const hostEmbed = fields.length ? renderInstancePreview(widget.id)?.hostEmbed : undefined;
+    const hostEmbed = renderInstancePreview(widget.id)?.hostEmbed;
     const placeholders: Record<string, string> = {};
-    if (hostEmbed?.kind === "popup") {
+    if (hostEmbed) {
       for (const [device, { width, height, scale }] of Object.entries(hostEmbed.sizes)) {
         placeholders[`${device}Width`] = String(width);
         placeholders[`${device}Height`] = String(height);
@@ -30,17 +30,13 @@ export function WidgetSizeSettings({ widget, template }: { widget: WidgetInstanc
       <div className="console-editor">
         <section className="console-panel console-form-panel" aria-labelledby="widget-size-heading">
           <div className="console-section-heading">
-            <h2 id="widget-size-heading">{fields.length ? "Popup dimensions" : "Announcement size"}</h2>
-            <p>{fields.length
-              ? "Set the width, height, and visual scale for each screen. Leave a dimension empty to use its automatic size."
-              : "The announcement matches the width of its mount element and grows to fit its content."}</p>
+            <h2 id="widget-size-heading">Popup dimensions</h2>
+            <p>Set the width, height, and visual scale for each screen. Leave a dimension empty to use its automatic size.</p>
           </div>
-          {fields.length > 0 && (
-            <AdminForm action={updateWidgetSizeAction} label="Save sizes" className="console-form console-form-spacious">
-              <input type="hidden" name="id" value={widget.id} />
-              <WidgetConfigurationFields fields={fields} values={widget.configuration} placeholders={placeholders} />
-            </AdminForm>
-          )}
+          <AdminForm action={updateWidgetSizeAction} label="Save sizes" className="console-form console-form-spacious">
+            <input type="hidden" name="id" value={widget.id} />
+            <WidgetConfigurationFields fields={fields} values={widget.configuration} placeholders={placeholders} />
+          </AdminForm>
         </section>
       </div>
     );

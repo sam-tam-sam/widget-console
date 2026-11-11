@@ -17,7 +17,7 @@ export type WidgetConfigurationField = {
   key: string;
   label: string;
   description?: string;
-  control?: "text" | "url" | "number" | "textarea" | "select" | "datetime-local" | "range";
+  control?: "text" | "url" | "number" | "textarea" | "select" | "range";
   section?: string;
   tab?: "size";
   options?: readonly { value: string; label: string }[];
@@ -36,12 +36,6 @@ export type WidgetHostEmbed = {
   frequency: "always" | "session";
   sessionLimit: number;
   sizes: Record<WidgetPopupProfile, { width: number; height: number; scale: number }>;
-} | {
-  kind: "announcement";
-  mountSelector: string;
-  fixedHeaderSelector: string;
-  startsAt: number | null;
-  endsAt: number | null;
 };
 
 export type WidgetImage = { src: string; width: number; height: number };

@@ -20,10 +20,7 @@ export function WidgetPreview({ instanceId }: { instanceId: string }) {
   const srcDoc = `<!doctype html><meta http-equiv="Content-Security-Policy" content="${previewPolicy}; script-src ${scriptPolicy}">${markup}`;
 
   if (preview.hostEmbed) {
-    // The authenticated server request supplies one timestamp to both renders of the preview.
-    // eslint-disable-next-line react-hooks/purity
-    const now = Date.now();
-    return <WidgetHostPreview key={channel} srcDoc={srcDoc} imageSrc={preview.imageSrc} configuration={preview.hostEmbed} channel={channel} now={now} />;
+    return <WidgetHostPreview key={channel} srcDoc={srcDoc} imageSrc={preview.imageSrc} configuration={preview.hostEmbed} channel={channel} />;
   }
   return <WidgetPreviewFrame srcDoc={srcDoc} heights={preview.embedHeights} />;
 }

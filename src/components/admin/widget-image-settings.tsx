@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState, type ChangeEvent } from "react";
 import { LoaderCircle } from "lucide-react";
 import type { FormResult } from "@/app/(admin)/admin/actions";
 import { FormMessage } from "@/components/admin/form";
@@ -20,20 +20,19 @@ export function WidgetImageSettings({ id, image }: { id: string; image?: WidgetI
   const [update, setUpdate] = useState<{ previousSrc: string | undefined; image: WidgetImage | null }>();
   const currentImage = update && update.previousSrc === image?.src ? update.image : image;
 
-  async function changeImage(method: "POST" | "DELETE", form?: HTMLFormElement) {
+  async function changeImage(method: "POST" | "DELETE", body?: FormData) {
     if (pending) return;
     setPending(method);
     setState({});
     try {
       const response = await fetch(`/api/admin/widget-image/${encodeURIComponent(id)}`, {
         method,
-        body: form ? new FormData(form) : undefined,
+        body,
       });
       const result: ImageResult = await response.json();
       setState(result);
       if (response.ok) {
         if (result.image !== undefined) setUpdate({ previousSrc: image?.src, image: result.image });
-        form?.reset();
         router.refresh();
       }
     } catch {
@@ -43,9 +42,14 @@ export function WidgetImageSettings({ id, image }: { id: string; image?: WidgetI
     }
   }
 
-  function upload(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    void changeImage("POST", event.currentTarget);
+  function upload(event: ChangeEvent<HTMLInputElement>) {
+    const field = event.currentTarget;
+    const file = field.files?.item(0);
+    if (!file) return;
+    field.value = "";
+    const body = new FormData();
+    body.set("image", file);
+    void changeImage("POST", body);
   }
 
   return (
@@ -62,7 +66,7 @@ export function WidgetImageSettings({ id, image }: { id: string; image?: WidgetI
           <figcaption>Uploaded image · {currentImage.width} × {currentImage.height}px</figcaption>
         </figure>
       )}
-      <form onSubmit={upload} className="console-form" aria-busy={Boolean(pending)}>
+      <div className="console-form" aria-busy={Boolean(pending)}>
         <div className="console-field">
           <Label htmlFor={inputId}>{currentImage ? "Choose a replacement image" : "Choose an image"}</Label>
           <Input
@@ -72,24 +76,21 @@ export function WidgetImageSettings({ id, image }: { id: string; image?: WidgetI
             accept="image/jpeg,image/png,image/webp"
             aria-describedby={`${inputId}-help`}
             className="console-widget-image-input"
-            required
+            disabled={Boolean(pending)}
+            onChange={upload}
           />
-          <small id={`${inputId}-help`}>Static JPEG, PNG, or WebP, up to 5 MiB and 20 megapixels.</small>
+          <small id={`${inputId}-help`}>Selecting a file uploads it immediately. Use a static JPEG, PNG, or WebP up to 5 MiB and 20 megapixels.</small>
         </div>
-        <div className="console-image-actions">
-          <Button type="submit" disabled={Boolean(pending)}>
-            {pending === "POST" && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-            {currentImage ? "Replace image" : "Upload image"}
-          </Button>
-          {currentImage && (
+        {currentImage && (
+          <div className="console-image-actions">
             <Button type="button" variant="outline" disabled={Boolean(pending)} onClick={() => void changeImage("DELETE")}>
               {pending === "DELETE" && <LoaderCircle className="animate-spin" aria-hidden="true" />}
               Remove image
             </Button>
-          )}
-        </div>
-        <FormMessage state={state} />
-      </form>
+          </div>
+        )}
+      </div>
+      {pending === "POST" ? <p role="status" className="console-message"><LoaderCircle size={16} className="animate-spin" aria-hidden="true" />Uploading image…</p> : <FormMessage state={state} />}
     </section>
   );
 }

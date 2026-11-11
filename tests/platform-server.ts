@@ -21,11 +21,13 @@ type PlatformOptions = {
   trustCloudflare?: boolean;
   publisherKeys?: Record<string, string>;
   historicalViews?: number;
+  seedRetiredAnnouncement?: boolean;
 };
 
-function seedLegacyWidget(database: string, historicalViews: number) {
+function seedLegacyWidget(database: string, historicalViews: number, seedRetiredAnnouncement: boolean) {
   const widgetId = randomUUID();
   const links = [approvedOrigin, otherOrigin].map((origin) => ({ id: randomUUID(), origin }));
+  const retired = seedRetiredAnnouncement ? { widgetId: randomUUID(), linkId: randomUUID() } : undefined;
   mkdirSync(dirname(database), { recursive: true });
   const db = new DatabaseSync(database);
   try {
@@ -51,7 +53,13 @@ function seedLegacyWidget(database: string, historicalViews: number) {
       db.prepare("INSERT INTO widget_embed_links VALUES (?, ?, ?, 1, ?)")
         .run(id, widgetId, JSON.stringify([origin]), Date.now());
     }
-    if (historicalViews > 0) {
+    if (retired) {
+      db.prepare("INSERT INTO widget_instances VALUES (?, 'announcement', 'Retired fixture', '{}', ?)")
+        .run(retired.widgetId, Date.now());
+      db.prepare("INSERT INTO widget_embed_links VALUES (?, ?, ?, 1, ?)")
+        .run(retired.linkId, retired.widgetId, JSON.stringify([approvedOrigin]), Date.now());
+    }
+    if (historicalViews > 0 || retired) {
       db.exec(`
         CREATE TABLE widget_analytics_daily (
           day TEXT NOT NULL,
@@ -62,13 +70,15 @@ function seedLegacyWidget(database: string, historicalViews: number) {
           PRIMARY KEY (day, widget_id, origin)
         ) STRICT;
       `);
-      db.prepare("INSERT INTO widget_analytics_daily VALUES (?, ?, ?, ?, 0)")
-        .run(new Date().toISOString().slice(0, 10), widgetId, approvedOrigin, historicalViews);
+      const addViews = db.prepare("INSERT INTO widget_analytics_daily VALUES (?, ?, ?, ?, 0)");
+      const today = new Date().toISOString().slice(0, 10);
+      if (historicalViews > 0) addViews.run(today, widgetId, approvedOrigin, historicalViews);
+      if (retired) addViews.run(today, retired.widgetId, approvedOrigin, 1);
     }
   } finally {
     db.close();
   }
-  return { widgetId, links };
+  return { widgetId, links, retired };
 }
 
 function der(tag: number, value: Buffer) {
@@ -116,13 +126,11 @@ function scriptedHost(id: string, query: URLSearchParams) {
     </style>
   </head>
   <body>
-    ${query.get("slot") === "missing" ? "" : '<div id="announcement-slot"></div>'}
     <header id="site-header">Demo site</header>
     <main>
       <h1>Widget embed demo</h1>
       <p>The navigation and controls on this page belong to the host.</p>
       <button id="offer-trigger" type="button">Open offer</button>
-      <button id="host-control" type="button">Host control</button>
       ${placement === "body" ? `<div class="elementor-widget-html">${scripts}</div>` : ""}
     </main>
     ${placement === "late" ? `<script>
@@ -141,9 +149,10 @@ export async function startPlatform(credentials: Credentials, {
   trustCloudflare = false,
   publisherKeys,
   historicalViews = 0,
+  seedRetiredAnnouncement = false,
 }: PlatformOptions = {}) {
   const database = resolve(".data/e2e", randomUUID(), "platform.sqlite");
-  const legacy = seedLegacyWidget(database, historicalViews);
+  const legacy = seedLegacyWidget(database, historicalViews, seedRetiredAnnouncement);
   mkdirSync(".next/standalone/.next", { recursive: true });
   cpSync(".next/static", ".next/standalone/.next/static", { recursive: true });
   cpSync("public", ".next/standalone/public", { recursive: true });

@@ -53,7 +53,7 @@ export function renderWidgetDocument(template: WidgetTemplate, instance: WidgetI
     scriptHashes.push(script.hash);
   }
   if (frame && template.hostEmbed) {
-    const attributes = ` data-parent-origin="${escapeHtml(frame.parentOrigin)}" data-channel="${escapeHtml(frame.channel)}" data-kind="${template.hostEmbed}"`;
+    const attributes = ` data-parent-origin="${escapeHtml(frame.parentOrigin)}" data-channel="${escapeHtml(frame.channel)}"`;
     const script = appendWidgetScript(html, hostFrameScript, attributes);
     html = script.html;
     scriptHashes.push(script.hash);

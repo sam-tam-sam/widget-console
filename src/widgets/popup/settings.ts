@@ -2,8 +2,7 @@ import { optionalWidgetText, widgetHttpsUrl } from "../configuration";
 import { WidgetError, type WidgetConfiguration, type WidgetConfigurationField, type WidgetInstance } from "../contracts";
 
 const activation = "Display rules";
-const content = "Popup content";
-const action = "Action link";
+const imageDetails = "Image details";
 
 const profiles = {
   phone: { label: "Phone", range: "Below 600px", width: 360, height: 560 },
@@ -28,15 +27,8 @@ const sizeFields = profileKeys.flatMap((key): WidgetConfigurationField[] => {
 });
 
 export const popupFields: readonly WidgetConfigurationField[] = [
-  { key: "title", label: "Title", control: "text", section: content },
-  { key: "description", label: "Description", description: "Use a short description that fits at your smallest preview width.", control: "textarea", section: content },
-  { key: "imageAlt", label: "Image alternative text", description: "Describe information conveyed by the image, including any text visitors need to read.", control: "text", section: content },
-  { key: "ctaLabel", label: "Button label", description: "Defaults to Learn more when a button URL is set.", control: "text", section: action },
-  { key: "ctaUrl", label: "Button URL", control: "url", section: action },
-  { key: "showActionButton", label: "Show action button", description: "The image still opens the button URL when the button is hidden.", control: "select", section: action, options: [
-    { value: "yes", label: "Yes" },
-    { value: "no", label: "No" },
-  ] },
+  { key: "imageAlt", label: "Image alternative text", description: "Describe information conveyed by the image, including any text visitors need to read.", control: "text", section: imageDetails },
+  { key: "ctaUrl", label: "Image link URL", description: "Optional. Clicking the image opens this link in a new tab.", control: "url", section: imageDetails },
   { key: "trigger", label: "Open popup", control: "select", section: activation, options: [
     { value: "delay", label: "After a delay" },
     { value: "click", label: "On host element click" },
@@ -47,27 +39,17 @@ export const popupFields: readonly WidgetConfigurationField[] = [
     { value: "session", label: "Limit per browser tab session" },
     { value: "always", label: "Every time it is triggered" },
   ] },
-  { key: "sessionLimit", label: "Maximum opens per tab session", description: "Used with the session limit. Defaults to one opening per session.", control: "number", min: 1, max: 20, step: 1, section: activation },
+  { key: "sessionLimit", label: "Maximum opens per tab session", description: "Enter a positive whole number. Defaults to one opening per session.", control: "number", min: 1, step: 1, section: activation },
   ...sizeFields,
 ];
 
-function optionalInteger(input: unknown, label: string, min: number, max: number) {
+function optionalInteger(input: unknown, label: string, min: number, max = Number.MAX_SAFE_INTEGER) {
   if (input === undefined || input === null || input === "") return undefined;
   const value = typeof input === "string" && /^\d+$/.test(input) ? Number(input) : input;
-  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max) {
     throw new WidgetError(`${label} must be a whole number from ${min} to ${max}.`);
   }
   return value;
-}
-
-function descriptionText(input: unknown) {
-  if (input === undefined || input === null || input === "") return undefined;
-  if (typeof input !== "string") throw new WidgetError("Description must be text.");
-  const value = input.replace(/\r\n?/g, "\n").trim();
-  if (value.length > 1600 || /[\u0000-\u0009\u000b-\u001f\u007f]/.test(value)) {
-    throw new WidgetError("Description must be plain text of 1,600 characters or fewer.");
-  }
-  return value || undefined;
 }
 
 export function parsePopupSettings(input: unknown): WidgetConfiguration {
@@ -76,17 +58,13 @@ export function parsePopupSettings(input: unknown): WidgetConfiguration {
     throw new WidgetError("Popup settings must be an object.");
   }
   const value = input as Record<string, unknown>;
-  const title = optionalWidgetText(value.title, "Title", 120);
-  const description = descriptionText(value.description);
   const imageAlt = optionalWidgetText(value.imageAlt, "Image alternative text", 300);
-  const ctaLabel = optionalWidgetText(value.ctaLabel, "Button label", 80);
-  const ctaUrl = optionalWidgetText(value.ctaUrl, "Button URL", 2048);
-  const showActionButton = optionalWidgetText(value.showActionButton, "Show action button", 3);
+  const ctaUrl = optionalWidgetText(value.ctaUrl, "Image link URL", 2048);
   const trigger = optionalWidgetText(value.trigger, "Open popup", 16);
   const triggerSelector = optionalWidgetText(value.triggerSelector, "Host trigger selector", 240);
   const delaySeconds = optionalInteger(value.delaySeconds, "Delay", 0, 3600);
   const frequency = optionalWidgetText(value.frequency, "Frequency", 16);
-  const sessionLimit = optionalInteger(value.sessionLimit, "Session limit", 1, 20);
+  const sessionLimit = optionalInteger(value.sessionLimit, "Session limit", 1);
 
   if (trigger && trigger !== "click" && trigger !== "delay") {
     throw new WidgetError("Choose a popup trigger.");
@@ -94,17 +72,9 @@ export function parsePopupSettings(input: unknown): WidgetConfiguration {
   if (frequency && frequency !== "always" && frequency !== "session") {
     throw new WidgetError("Choose a popup frequency.");
   }
-  if (showActionButton && showActionButton !== "yes" && showActionButton !== "no") {
-    throw new WidgetError("Choose whether to show the action button.");
-  }
-
   const settings: WidgetConfiguration = {};
-  if (title) settings.title = title;
-  if (description) settings.description = description;
   if (imageAlt) settings.imageAlt = imageAlt;
-  if (ctaLabel) settings.ctaLabel = ctaLabel;
-  if (ctaUrl) settings.ctaUrl = widgetHttpsUrl(ctaUrl, "Button URL");
-  if (showActionButton === "no") settings.showActionButton = "no";
+  if (ctaUrl) settings.ctaUrl = widgetHttpsUrl(ctaUrl, "Image link URL");
   if (trigger) settings.trigger = trigger;
   if (triggerSelector) settings.triggerSelector = triggerSelector;
   if (delaySeconds !== undefined) settings.delaySeconds = delaySeconds;
@@ -116,10 +86,6 @@ export function parsePopupSettings(input: unknown): WidgetConfiguration {
     if (size !== undefined) settings[key] = size;
   }
   return settings;
-}
-
-export function popupShowsAction(configuration: WidgetConfiguration) {
-  return typeof configuration.ctaUrl === "string" && configuration.showActionButton !== "no";
 }
 
 export function popupSize(instance: WidgetInstance, key: SizeProfile) {
@@ -136,13 +102,8 @@ export function popupSize(instance: WidgetInstance, key: SizeProfile) {
   }
 
   const ratio = image.width / image.height;
-  const hasCopy = Boolean(configuration.title || configuration.description);
-  const hasAction = popupShowsAction(configuration);
-  const closeSpace = 60;
-  const footerSpace = (hasCopy ? 116 : 0) + (hasAction ? 60 : 0);
-  const artworkHeight = Math.max(1, (preferredHeight ?? limits.height) - closeSpace - footerSpace);
-  const automaticWidth = Math.min(image.width, limits.width, artworkHeight * ratio);
-  const width = preferredWidth ?? Math.max(hasCopy || hasAction ? 280 : minWidth, Math.round(automaticWidth));
-  const height = preferredHeight ?? Math.min(limits.height, Math.max(minHeight, Math.round(width / ratio) + closeSpace + footerSpace));
+  const automaticWidth = Math.min(image.width, limits.width, (preferredHeight ?? limits.height) * ratio);
+  const width = preferredWidth ?? Math.max(minWidth, Math.round(automaticWidth));
+  const height = preferredHeight ?? Math.min(limits.height, Math.max(minHeight, Math.round(width / ratio)));
   return { width, height, scale };
 }

@@ -147,9 +147,6 @@ export async function updateWidgetSizeAction(_state: FormResult, data: FormData)
     if (!instance) throw new WidgetError("This widget instance is unavailable.");
     const template = listTemplates().find(({ key }) => key === instance.templateKey);
     if (template?.hostEmbed) {
-      if (!template.configurationFields?.some(({ tab }) => tab === "size")) {
-        throw new WidgetError("This widget adjusts its size automatically.");
-      }
       updateInstance({
         id: instance.id,
         name: instance.name,

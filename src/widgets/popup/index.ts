@@ -1,45 +1,35 @@
-import { widgetAppearanceCss } from "../appearance";
-import type { WidgetAppearance, WidgetInstance, WidgetTemplate } from "../contracts";
+import type { WidgetInstance, WidgetTemplate } from "../contracts";
 import { escapeHtml, widgetDocument } from "../html";
-import { parsePopupSettings, popupFields, popupShowsAction, popupSize } from "./settings";
+import { parsePopupSettings, popupFields, popupSize } from "./settings";
 import { popupStyles } from "./styles";
 
 const name = "Popup";
-const appearance: WidgetAppearance = { accent: "#124b5c", surface: "#ffffff" };
 const closeIcon = '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+const closeButton = `<button class="popup-close" type="button" data-widget-close aria-label="Close popup">${closeIcon}</button>`;
 
 function renderPopup({ configuration, image }: WidgetInstance) {
-  const { ctaLabel, ctaUrl, description, imageAlt, title } = configuration;
-  const showAction = popupShowsAction(configuration);
-  const heading = typeof title === "string" ? title : !image && !description && !showAction ? name : "";
-  const actionAttributes = typeof ctaUrl === "string"
-    ? `href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener noreferrer"`
-    : "";
-  const actionLabel = escapeHtml(typeof ctaLabel === "string" ? ctaLabel : "Learn more");
-  const alt = typeof imageAlt === "string" ? escapeHtml(imageAlt) : "";
-  const imageMarkup = image
-    ? `<img class="popup-media" src="${escapeHtml(image.src)}" alt="${alt}" width="${image.width}" height="${image.height}">`
-    : "";
-  const media = imageMarkup && actionAttributes
-    ? `<a class="popup-media-link" ${actionAttributes}${alt ? "" : ` aria-label="${actionLabel}"`}>${imageMarkup}</a>`
-    : imageMarkup;
-  const copy = [
-    heading ? `<h1 id="popup-title" dir="auto">${escapeHtml(heading)}</h1>` : "",
-    typeof description === "string" ? `<p dir="auto">${escapeHtml(description)}</p>` : "",
-    showAction
-      ? `<a class="popup-action" dir="auto" ${actionAttributes}><span>${actionLabel}</span></a>`
-      : "",
-  ].join("");
-  const artwork = image
-    ? `<div class="popup-artwork" style="--popup-image-ratio: ${image.width / image.height}">${media}</div>`
-    : "";
+  if (!image) {
+    return widgetDocument(name, popupStyles, `
+      <main class="popup" aria-label="Popup">
+        <div class="popup-empty">
+          ${closeButton}
+          <p>Choose an image in Settings.</p>
+        </div>
+      </main>`);
+  }
 
-  return widgetDocument(name, widgetAppearanceCss(appearance, configuration) + popupStyles, `
-    <main class="popup${image ? " popup-with-media" : ""}" ${heading ? 'aria-labelledby="popup-title"' : 'aria-label="Popup"'}>
-      <button class="popup-close" type="button" data-widget-close aria-label="Close popup">${closeIcon}</button>
-      <div class="popup-stage" role="region" aria-label="Popup content">
-        ${artwork}
-        ${copy ? `<div class="popup-content">${copy}</div>` : ""}
+  const { ctaUrl, imageAlt } = configuration;
+  const alt = typeof imageAlt === "string" ? escapeHtml(imageAlt) : "";
+  const imageMarkup = `<img class="popup-media" src="${escapeHtml(image.src)}" alt="${alt}" width="${image.width}" height="${image.height}">`;
+  const media = typeof ctaUrl === "string"
+    ? `<a class="popup-media-link" href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener noreferrer"${alt ? "" : ' aria-label="Open image link"'}>${imageMarkup}</a>`
+    : imageMarkup;
+
+  return widgetDocument(name, popupStyles, `
+    <main class="popup" aria-label="Popup">
+      <div class="popup-artwork" style="--popup-image-ratio: ${image.width / image.height}">
+        ${closeButton}
+        ${media}
       </div>
     </main>`);
 }
@@ -47,9 +37,8 @@ function renderPopup({ configuration, image }: WidgetInstance) {
 export const popup: WidgetTemplate = {
   key: "popup",
   name,
-  description: "Show an image or offer over the host page, on a timer or from a button.",
+  description: "Show an image over the host page, on a timer or from a button.",
   configurationFields: popupFields,
-  appearance,
   embedHeights: { compact: 380, mobile: 380, wide: 380 },
   hostEmbed: "popup",
   imageUpload: true,
