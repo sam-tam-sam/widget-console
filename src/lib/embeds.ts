@@ -51,7 +51,7 @@ export function normalizeOrigins(input: readonly string[]): string[] {
   return origins;
 }
 
-export function embedSecurityHeaders(origins: readonly string[], scriptHashes: readonly string[] = []): Headers {
+export function embedSecurityHeaders(origins: readonly string[], scriptHashes: readonly string[] = [], receiptFrameSource?: string): Headers {
   return new Headers({
     "Cache-Control": "no-store",
     "Content-Security-Policy": [
@@ -62,6 +62,7 @@ export function embedSecurityHeaders(origins: readonly string[], scriptHashes: r
       "img-src 'self' data:",
       "font-src 'self'",
       "connect-src 'none'",
+      `frame-src ${receiptFrameSource || "'none'"}`,
       "base-uri 'none'",
       "form-action 'none'",
       `frame-ancestors ${origins.length > 0 ? origins.join(" ") : "'none'"}`,

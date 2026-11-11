@@ -199,11 +199,13 @@ test("runtime credentials, widget settings, and production embed management", as
         expect(await embedPolicy(visitor, id)).toContain(`frame-ancestors ${origin}`);
       }
       const legacyHost = await visitor.newPage();
+      const receipt = legacyHost.waitForResponse((response) => new URL(response.url()).searchParams.has("view"));
       await legacyHost.goto(`${links[0].origin}/${links[0].id}`);
       await expect(legacyHost.frameLocator("iframe").locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+      expect((await receipt).status()).toBe(204);
       await legacyHost.close();
       const analytics = await analyticsAt(page, `/api/admin/widget-analytics?widgetId=${widgetId}`);
-      expect(analytics.data).toMatchObject({ views: 3, publisherViews: 0, visitorDays: null, measuredViews: 0 });
+      expect(analytics.data).toMatchObject({ views: 4, browserViews: 1, publisherViews: 0, visitorDays: null, measuredViews: 0 });
 
       await page.goto(`/admin/widgets/${widgetId}`);
       await page.getByLabel("Widget name", { exact: true }).fill("Legacy widget renamed");
@@ -753,6 +755,10 @@ test("recover from unknown pages and report authenticated publisher loads in the
     extraHTTPHeaders: { "CF-Connecting-IP": "192.0.2.10" },
   });
   const endpoint = "/api/admin/widget-analytics";
+  // Isolate the optional publisher transport here. Automatic browser recording
+  // is exercised end to end, without interception, in browser-analytics.spec.ts.
+  await visitor.route((url) => url.pathname.startsWith("/embed/") && url.searchParams.has("view"),
+    (route) => route.fulfill({ status: 204 }));
   try {
     const host = await visitor.newPage();
     const missing = await host.goto("/embed");
@@ -808,7 +814,7 @@ test("recover from unknown pages and report authenticated publisher loads in the
     const widget = host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" });
     const firstEmbed = `${adminOrigin}/embed/${first.id}`;
     const secondVisitor = { "CF-Connecting-IP": "192.0.2.11", "User-Agent": agent };
-    await test.step("serve approved frames without counting ordinary or forged iframe requests", async () => {
+    await test.step("serve frames and reject bare forged GET counting with browser receipts isolated", async () => {
       await host.goto(`${approvedOrigin}/${first.id}`);
       await expect(widget).toBeVisible();
       await host.reload();

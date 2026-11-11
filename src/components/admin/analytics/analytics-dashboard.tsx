@@ -78,9 +78,10 @@ export function AnalyticsDashboard({ initial, widgetId }: { initial: AnalyticsRe
           {!widgetId && <AnalyticsWidgets report={report} />}
           <details className="console-disclosure analytics-method">
             <summary>How analytics are counted</summary>
-            <p>New loads come from authenticated reports sent by approved publisher servers. Totals also include historical estimates collected before publisher reporting.</p>
-            <p>Visitor-day estimates cover historical activity only. Publisher reports contain no visitor identifiers.</p>
-            {!report.publisherReportingEnabled && <p>Publisher reporting is unconfigured. Existing embeds still display on approved sites.</p>}
+            <p>Embedded widgets record loads automatically on approved sites. Reloading the page records a new load. Admin previews and blocked embeds do not count.</p>
+            <p>Each load signal counts once, and rapid repeated requests are limited. These are estimates and can include automated browsers.</p>
+            <p>Visitor-days are estimated from available visitor signals. A site that hides its origin appears as Unknown site.</p>
+            <p>Totals also include optional publisher reports and historical estimates. Reporting the same delivery through the publisher API creates an additional record.</p>
             <p>Reports update automatically while this page is visible.</p>
           </details>
         </div>

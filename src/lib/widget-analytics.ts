@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { DatabaseSync } from "node:sqlite";
+import { createHash, randomBytes } from "node:crypto";
 import { publishAdminChange } from "@/lib/admin-live";
 import { getDb } from "@/lib/db";
 import { resolveEmbedPolicy } from "@/lib/widgets";
@@ -13,6 +14,7 @@ export type WidgetAnalyticsSnapshot = AnalyticsTotals & {
   range: AnalyticsRange;
   measuredViews: number;
   publisherViews: number;
+  browserViews: number;
   daily: (AnalyticsTotals & { date: string })[];
   origins: (AnalyticsTotals & { origin: string })[];
   widgets: (AnalyticsTotals & { widgetId: string })[];
@@ -46,6 +48,7 @@ function prepareStore(db: DatabaseSync) {
       views INTEGER NOT NULL,
       measured_views INTEGER NOT NULL,
       publisher_views INTEGER NOT NULL DEFAULT 0,
+      browser_views INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (day, widget_id, origin)
     ) STRICT;
     CREATE INDEX IF NOT EXISTS widget_analytics_daily_widget ON widget_analytics_daily(widget_id, day);
@@ -81,9 +84,18 @@ function prepareStore(db: DatabaseSync) {
     ) STRICT;
     CREATE INDEX IF NOT EXISTS widget_analytics_publisher_events_expiry ON widget_analytics_publisher_events(expires_at);
     CREATE INDEX IF NOT EXISTS widget_analytics_publisher_events_widget ON widget_analytics_publisher_events(widget_id);
+    CREATE TABLE IF NOT EXISTS widget_analytics_browser_events (
+      event_id TEXT PRIMARY KEY,
+      widget_id TEXT NOT NULL REFERENCES widget_instances(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS widget_analytics_browser_events_expiry ON widget_analytics_browser_events(expires_at);
+    CREATE INDEX IF NOT EXISTS widget_analytics_browser_events_widget ON widget_analytics_browser_events(widget_id);
     `);
     const column = db.prepare("SELECT 1 FROM pragma_table_info('widget_analytics_daily') WHERE name = 'publisher_views'").get();
     if (!column) db.exec("ALTER TABLE widget_analytics_daily ADD COLUMN publisher_views INTEGER NOT NULL DEFAULT 0");
+    const browserColumn = db.prepare("SELECT 1 FROM pragma_table_info('widget_analytics_daily') WHERE name = 'browser_views'").get();
+    if (!browserColumn) db.exec("ALTER TABLE widget_analytics_daily ADD COLUMN browser_views INTEGER NOT NULL DEFAULT 0");
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
@@ -110,6 +122,18 @@ function prepareStore(db: DatabaseSync) {
     insertPublisherEvent: db.prepare(`
       INSERT INTO widget_analytics_publisher_events (origin, event_id, widget_id, expires_at) VALUES (?, ?, ?, ?)
     `),
+    findBrowserEvent: db.prepare("SELECT 1 FROM widget_analytics_browser_events WHERE event_id = ?"),
+    insertBrowserEvent: db.prepare("INSERT INTO widget_analytics_browser_events VALUES (?, ?, ?)"),
+    upsertBrowserViews: db.prepare(`
+      INSERT INTO widget_analytics_daily (day, widget_id, origin, views, measured_views, browser_views)
+      VALUES (?, ?, ?, 1, ?, 1)
+      ON CONFLICT (day, widget_id, origin) DO UPDATE SET
+        views = views + 1, measured_views = measured_views + excluded.measured_views,
+        browser_views = browser_views + 1
+    `),
+    insertVisitor: db.prepare("INSERT OR IGNORE INTO widget_analytics_visitors VALUES (?, ?, ?, ?)"),
+    getSecret: db.prepare("SELECT secret FROM widget_analytics_keys WHERE day = ?"),
+    insertSecret: db.prepare("INSERT OR IGNORE INTO widget_analytics_keys VALUES (?, ?)"),
   };
 }
 
@@ -122,16 +146,79 @@ function analyticsStore(db: DatabaseSync, now: number) {
   const today = utcDate(now);
   if (store.lastPrunedDate !== today) {
     db.prepare("DELETE FROM widget_analytics_daily WHERE day < ?").run(utcDate(now - (retentionDays - 1) * dayMs));
-    db.prepare("DELETE FROM widget_analytics_keys WHERE day < ?").run(today);
+    // Yesterday's key verifies receipts issued shortly before midnight.
+    db.prepare("DELETE FROM widget_analytics_keys WHERE day < ?").run(utcDate(now - dayMs));
     store.lastPrunedDate = today;
   }
   const window = Math.floor(now / minuteMs);
   if (store.lastPrunedWindow !== window) {
     db.prepare("DELETE FROM widget_analytics_load_limits WHERE window_minute < ?").run(window);
     db.prepare("DELETE FROM widget_analytics_publisher_events WHERE expires_at < ?").run(now);
+    db.prepare("DELETE FROM widget_analytics_browser_events WHERE expires_at < ?").run(now);
     store.lastPrunedWindow = window;
   }
   return store;
+}
+
+/** Persistent, daily-rotated secret; never sent to an iframe or publisher. */
+export function analyticsSecret(time: number): Buffer {
+  const store = analyticsStore(getDb(), Date.now());
+  const day = utcDate(time);
+  let row = store.getSecret.get(day) as { secret: Uint8Array } | undefined;
+  if (!row) {
+    store.insertSecret.run(day, randomBytes(32));
+    row = store.getSecret.get(day) as { secret: Uint8Array };
+  }
+  return Buffer.from(row.secret);
+}
+
+export function browserPolicyDigest(origins: readonly string[]): string {
+  return createHash("sha256").update(JSON.stringify([...origins].sort())).digest("hex");
+}
+
+/** Called only after a signed browser receipt has been verified. */
+export function recordBrowserEmbedLoad(
+  linkId: string,
+  origin: string,
+  policyDigest: string,
+  eventId: string,
+  sourceKey: Buffer,
+  visitorKey: Buffer | undefined,
+  now: number,
+  expiresAt: number,
+): "accepted" | "unavailable" | "limited" {
+  const allowed = (embed: ReturnType<typeof resolveEmbedPolicy>) =>
+    embed && (origin ? embed.origins.includes(origin) :
+      embed.origins.length > 0 && browserPolicyDigest(embed.origins) === policyDigest);
+  if (!allowed(resolveEmbedPolicy(linkId))) return "unavailable";
+  const db = getDb();
+  const store = analyticsStore(db, now);
+  let result: "accepted" | "unavailable" | "limited";
+  let changedWidgetId: string | undefined;
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const embed = resolveEmbedPolicy(linkId);
+    if (!embed || !allowed(embed)) {
+      result = "unavailable";
+    } else if (store.findBrowserEvent.get(eventId)) {
+      result = "accepted";
+    } else {
+      const charge = store.chargeLoad.run(Math.floor(now / minuteMs), embed.widgetId, origin, sourceKey, 60);
+      result = charge.changes > 0 ? "accepted" : "limited";
+      if (result === "accepted") {
+        store.insertBrowserEvent.run(eventId, embed.widgetId, expiresAt);
+        store.upsertBrowserViews.run(utcDate(now), embed.widgetId, origin, visitorKey ? 1 : 0);
+        if (visitorKey) store.insertVisitor.run(utcDate(now), embed.widgetId, origin, visitorKey);
+        changedWidgetId = embed.widgetId;
+      }
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  if (changedWidgetId) publishAdminChange("analytics", changedWidgetId);
+  return result;
 }
 
 /** Accepts only reports from the authenticated publisher endpoint. */
@@ -174,7 +261,7 @@ export function recordPublisherEmbedLoad(
   return result;
 }
 
-type AnalyticsGroup = AnalyticsTotals & { key: string; measuredViews: number; publisherViews: number };
+type AnalyticsGroup = AnalyticsTotals & { key: string; measuredViews: number; publisherViews: number; browserViews: number };
 
 function analyticsGroups(
   db: DatabaseSync,
@@ -186,7 +273,8 @@ function analyticsGroups(
   const where = widgetId ? "day BETWEEN ? AND ? AND widget_id = ?" : "day BETWEEN ? AND ?";
   const args = widgetId ? [start, end, widgetId] : [start, end];
   const counts = db.prepare(`
-    SELECT ${dimension} AS key, SUM(views) AS views, SUM(measured_views) AS measuredViews, SUM(publisher_views) AS publisherViews
+    SELECT ${dimension} AS key, SUM(views) AS views, SUM(measured_views) AS measuredViews,
+      SUM(publisher_views) AS publisherViews, SUM(browser_views) AS browserViews
     FROM widget_analytics_daily WHERE ${where}
     GROUP BY ${dimension} ORDER BY views DESC, key ASC
   `).all(...args) as Omit<AnalyticsGroup, "visitorDays">[];
@@ -216,6 +304,7 @@ export function getWidgetAnalytics(range: AnalyticsRange, widgetId?: string): Wi
     });
     const measuredViews = days.reduce((total, row) => total + row.measuredViews, 0);
     const publisherViews = days.reduce((total, row) => total + row.publisherViews, 0);
+    const browserViews = days.reduce((total, row) => total + row.browserViews, 0);
     const views = days.reduce((total, row) => total + row.views, 0);
     const visitorDays = measuredViews > 0 ? days.reduce((total, row) => total + (row.visitorDays ?? 0), 0) : null;
     const origins = analyticsGroups(db, "origin", start, end, widgetId)
@@ -224,7 +313,7 @@ export function getWidgetAnalytics(range: AnalyticsRange, widgetId?: string): Wi
       ? (views > 0 ? [{ widgetId, views, visitorDays }] : [])
       : analyticsGroups(db, "widget_id", start, end).map(({ key, views, visitorDays }) => ({ widgetId: key, views, visitorDays }));
     db.exec("COMMIT");
-    return { range, views, measuredViews, publisherViews, visitorDays, daily, origins, widgets };
+    return { range, views, measuredViews, publisherViews, browserViews, visitorDays, daily, origins, widgets };
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;

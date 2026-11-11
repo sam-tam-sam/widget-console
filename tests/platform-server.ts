@@ -110,12 +110,17 @@ export async function startPlatform(credentials: Credentials, {
   const gateway = createServer(testCertificate(), (incoming, outgoing) => {
     const host = incoming.headers.host ?? "";
     if (hostPages.has(host)) {
-      const id = /^\/([a-f0-9-]{36})$/i.exec(incoming.url ?? "")?.[1];
+      const url = new URL(incoming.url ?? "/", `https://${host}`);
+      const id = /^\/([a-f0-9-]{36})$/i.exec(url.pathname)?.[1];
       if (!id) {
         outgoing.writeHead(404).end();
         return;
       }
-      outgoing.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }).end(
+      const noReferrer = url.searchParams.get("referrer") === "none";
+      outgoing.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        ...(noReferrer ? { "Referrer-Policy": "no-referrer" } : {}),
+      }).end(
         `<!doctype html><html lang="en"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Embed host fixture</title><body style="margin:0"><iframe title="Embedded fixture" style="display:block;width:100%;height:1000px;border:0" src="${adminOrigin}/embed/${id}"></iframe></body></html>`,
       );
       return;

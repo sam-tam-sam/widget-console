@@ -11,17 +11,17 @@ export function AnalyticsSites({ origins }: { origins: AnalyticsReport["origins"
     <section className="console-panel analytics-panel" aria-labelledby="analytics-sites-heading">
       <header className="analytics-panel-heading">
         <h2 id="analytics-sites-heading">Sites</h2>
-        <span>{countFormat.format(origins.length)} active</span>
+        <span>{countFormat.format(origins.filter(({ origin }) => origin).length)} active</span>
       </header>
       {origins.length === 0 ? (
         <p className="console-empty-note">Sites appear after their first recorded embed load.</p>
       ) : (
         <table className="analytics-table">
-          <thead><tr><th scope="col">Approved origin</th><th scope="col">Loads</th><th scope="col">Est. visitor-days</th></tr></thead>
+          <thead><tr><th scope="col">Site</th><th scope="col">Loads</th><th scope="col">Est. visitor-days</th></tr></thead>
           <tbody>
             {origins.map(({ origin, views, visitorDays }) => (
               <tr key={origin}>
-                <th scope="row" title={origin}>{origin.replace(/^https:\/\//, "")}</th>
+                <th scope="row" title={origin || "The host page did not share its origin"}>{origin ? origin.replace(/^https:\/\//, "") : "Unknown site"}</th>
                 <td>{countFormat.format(views)}</td>
                 <td><VisitorCount count={visitorDays} /></td>
               </tr>
