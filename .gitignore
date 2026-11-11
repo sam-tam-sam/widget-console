@@ -19,7 +19,8 @@ node_modules/
 next-env.d.ts
 .env*
 *.env
-!/.env.example
+!/.env.docker.example
+!/.env.hostinger.example
 *.sqlite*
 *.db
 *.db-shm

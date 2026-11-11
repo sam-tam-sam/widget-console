@@ -15,7 +15,7 @@ In hPanel, open your Node.js Web App on its own HTTPS hostname. Import `sam-tam-
 | Build and output settings | Default for Next.js. The `build` script uses Webpack. |
 | Start command, if requested | `pnpm start` |
 
-Add these values in hPanel under **Environment variables**.
+Copy [`.env.hostinger.example`](.env.hostinger.example) into hPanel under **Environment variables**. Replace the example origin, account path, username, and password with your deployment's values before applying them.
 
 | Variable | Value |
 | --- | --- |
@@ -43,7 +43,7 @@ You need a Docker host managed by Dockhand and a hostname you can route through 
 | Build images on deploy | Enabled |
 | Auto-sync | Enable and select a schedule to deploy changes from `main` automatically. |
 
-Copy the settings from [`.env.example`](.env.example) into Dockhand's **Environment variables** panel. Set `WIDGET_PUBLIC_ORIGIN` to your HTTPS origin, choose a `WIDGET_ADMIN_USERNAME`, and fill in `WIDGET_ADMIN_PASSWORD` with a unique password of at least 15 characters. Keep the real password in Dockhand.
+Copy the settings from [`.env.docker.example`](.env.docker.example) into Dockhand's **Environment variables** panel. Set `WIDGET_PUBLIC_ORIGIN` to your HTTPS origin, choose a `WIDGET_ADMIN_USERNAME`, and fill in `WIDGET_ADMIN_PASSWORD` with a unique password of at least 15 characters. Keep the real password in Dockhand.
 
 Deploy the stack and wait for the `app` container to show **Healthy**. The image is built on the Docker host from the configured branch. The runtime image contains the Next.js standalone output and the files it needs to serve requests. [Docker multi-stage builds](https://docs.docker.com/build/building/multi-stage/)
 
