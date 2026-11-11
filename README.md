@@ -146,7 +146,9 @@ The dashboard can be installed as **Widget Console** from the install option in 
 
 ### Embed analytics
 
-Open **Analytics** in the admin navigation for totals across all widgets, or choose a widget to see its own activity and referring sites. Reports show the last 7, 30, or 90 UTC calendar days, including today. Open pages refresh every 30 seconds while visible.
+Open **Analytics** in the admin navigation for totals across all widgets, or choose a widget to see its own activity and referring sites. Reports show the last 7, 30, or 90 UTC calendar days, including today. New recorded loads update the visible report automatically. A periodic refresh catches up if the live connection is interrupted.
+
+The Widgets list and Embed links tab also update after changes from another admin session. An open confirmation or a pending form can finish before the new data appears.
 
 An embed load is a request for an enabled widget iframe with an approved HTTPS referrer. Previews and requests that omit their referrer are excluded. The count represents loads rather than time on screen or widget interactions. Data starts accumulating after deployment and stays in the existing SQLite volume for up to 90 days. Replacing an embed link keeps the widget's analytics. Deleting a widget removes its analytics.
 

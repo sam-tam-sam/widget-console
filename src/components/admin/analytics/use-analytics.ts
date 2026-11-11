@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useAdminLive } from "@/components/admin/use-admin-live";
 import type { AnalyticsReport } from "@/lib/analytics-report";
 import type { AnalyticsRange } from "@/lib/widget-analytics";
 
-export const analyticsRefreshSeconds = 30;
+const fallbackRefreshMs = 30_000;
+const batchDelayMs = 500;
 
 export function useAnalytics(initial: AnalyticsReport, widgetId?: string) {
   const [report, setReport] = useState(initial);
   const [request, setRequest] = useState({ range: initial.range, revision: 0 });
   const [status, setStatus] = useState<"ready" | "loading" | "error" | "unauthorized" | "unavailable">("ready");
+  const scheduleRefresh = useRef<() => void>(undefined);
 
   function selectRange(range: AnalyticsRange) {
     if (range === request.range) return;
@@ -30,9 +33,23 @@ export function useAnalytics(initial: AnalyticsReport, widgetId?: string) {
     if (widgetId) params.set("widgetId", widgetId);
     const controller = new AbortController();
     let inFlight = false;
+    let queued = false;
+    let batch: number | undefined;
+
+    function schedule() {
+      if (controller.signal.aborted || document.hidden || batch !== undefined) return;
+      batch = window.setTimeout(() => {
+        batch = undefined;
+        void load();
+      }, batchDelayMs);
+    }
 
     async function load() {
-      if (document.hidden || inFlight || controller.signal.aborted) return;
+      if (document.hidden || controller.signal.aborted) return;
+      if (inFlight) {
+        queued = true;
+        return;
+      }
       inFlight = true;
       try {
         const response = await fetch(`/api/admin/widget-analytics?${params}`, {
@@ -55,18 +72,29 @@ export function useAnalytics(initial: AnalyticsReport, widgetId?: string) {
         if (!controller.signal.aborted) setStatus("error");
       } finally {
         inFlight = false;
+        if (queued) {
+          queued = false;
+          schedule();
+        }
       }
     }
 
+    scheduleRefresh.current = schedule;
     if (request.revision > 0) void load();
-    const timer = window.setInterval(load, analyticsRefreshSeconds * 1000);
-    document.addEventListener("visibilitychange", load);
+    const timer = window.setInterval(schedule, fallbackRefreshMs);
+    document.addEventListener("visibilitychange", schedule);
     return () => {
+      scheduleRefresh.current = undefined;
       controller.abort();
       window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", load);
+      window.clearTimeout(batch);
+      document.removeEventListener("visibilitychange", schedule);
     };
   }, [request, widgetId]);
+
+  useAdminLive("analytics", (changedWidgetId) => {
+    if (!widgetId || !changedWidgetId || changedWidgetId === widgetId) scheduleRefresh.current?.();
+  }, status !== "unauthorized" && status !== "unavailable");
 
   return { report, status, range: request.range, selectRange, refresh };
 }

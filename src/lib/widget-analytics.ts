@@ -1,5 +1,6 @@
 import { createHmac, randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
+import { publishAdminChange } from "@/lib/admin-live";
 import { trustedCloudflareIp } from "@/lib/client-ip";
 import { getDb } from "@/lib/db";
 
@@ -156,9 +157,11 @@ export function recordWidgetEmbedLoad(request: Request, widgetId: string, origin
     const limit = ip ? trustedLoadsPerMinute : unmeasuredLoadsPerMinute;
 
     db.exec("BEGIN IMMEDIATE");
+    let counted: boolean;
     try {
       const charge = store.chargeLoad.run(window, widgetId, origin, sourceKey, limit);
-      if (charge.changes > 0) {
+      counted = charge.changes > 0;
+      if (counted) {
         const agent = request.headers.get("user-agent");
         const visitor = ip && secret && agent && agent.length <= 1024
           ? createHmac("sha256", secret).update(day).update("\0").update(ip).update("\0").update(agent).digest().subarray(0, 16)
@@ -171,6 +174,7 @@ export function recordWidgetEmbedLoad(request: Request, widgetId: string, origin
       db.exec("ROLLBACK");
       throw error;
     }
+    if (counted) publishAdminChange("analytics", widgetId);
   } catch {
     // The embed must remain available if analytics storage fails.
   }

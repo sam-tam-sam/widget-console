@@ -27,7 +27,7 @@ export function proxy(request: NextRequest) {
   response.headers.set("X-Content-Type-Options", "nosniff");
   if (versionedIcons.has(path)) {
     response.headers.set("Cache-Control", "public, max-age=31536000, immutable");
-  } else if (!path.startsWith("/_next/")) {
+  } else if (!path.startsWith("/_next/") && path !== "/api/admin/live") {
     response.headers.set("Cache-Control", "private, no-store");
   }
   return response;

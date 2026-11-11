@@ -7,7 +7,7 @@ import type { AnalyticsReport } from "@/lib/analytics-report";
 import { AnalyticsSites, AnalyticsWidgets } from "./analytics-breakdowns";
 import { AnalyticsMetrics } from "./analytics-metrics";
 import { AnalyticsTrend } from "./analytics-trend";
-import { analyticsRefreshSeconds, useAnalytics } from "./use-analytics";
+import { useAnalytics } from "./use-analytics";
 import "./analytics.css";
 
 const ranges = [7, 30, 90] as const;
@@ -81,7 +81,7 @@ export function AnalyticsDashboard({ initial, widgetId }: { initial: AnalyticsRe
             <p>Embed loads count requests with an approved site as the referrer. Dashboard previews, loads without a referrer, and excess loads during bursts are excluded.</p>
             <p>Estimated visitor-days count distinct visitor signals per UTC day, then add those daily totals. The same visitor can count on different days.</p>
             {!report.visitorTrackingEnabled && <p>Visitor estimates require a trusted Cloudflare connection and WIDGET_TRUST_CLOUDFLARE set to 1.</p>}
-            <p>Reports refresh every {analyticsRefreshSeconds} seconds while this page is visible.</p>
+            <p>Reports update automatically while this page is visible.</p>
           </details>
         </div>
       )}

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { publishAdminChange } from "@/lib/admin-live";
 import { isAdminMutation, requireAdmin } from "@/lib/auth";
 import {
   createInstance,
@@ -109,6 +110,7 @@ async function submit(operation: () => Change): Promise<FormResult> {
   }
   revalidatePath("/admin");
   revalidatePath(widgetPath(change.instanceId));
+  publishAdminChange("widgets", change.instanceId);
   if (change.destination) redirect(change.destination);
   return { message: change.message };
 }

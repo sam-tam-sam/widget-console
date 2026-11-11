@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ChartNoAxesColumnIncreasing, Eye, Link2, Paintbrush, Ruler, Settings, ShieldCheck } from "lucide-react";
 import { AdminShell } from "@/components/admin/shell";
 import { WidgetLinks } from "@/components/admin/widget-links";
+import { WidgetLiveRefresh } from "@/components/admin/widget-live-refresh";
 import { WidgetPreview } from "@/components/admin/widget-preview";
 import { WidgetOriginsSettings, WidgetSettings, WidgetStyleSettings } from "@/components/admin/widget-settings";
 import { WidgetSizeSettings } from "@/components/admin/widget-size-settings";
@@ -63,6 +64,7 @@ export default async function WidgetPage({
 
   return (
     <AdminShell username={username}>
+      {section === "links" && <WidgetLiveRefresh widgetId={widget.id} />}
       <Link href="/admin" className="console-back"><ArrowLeft size={16} aria-hidden="true" />All widgets</Link>
       <header className="console-page-header">
         <div>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, Blocks, CircleCheck, Plus } from "lucide-react";
 import { DeleteWidget } from "@/components/admin/delete-widget";
 import { AdminShell } from "@/components/admin/shell";
+import { WidgetLiveRefresh } from "@/components/admin/widget-live-refresh";
 import { Button } from "@/components/ui/button";
 import { requireAdmin } from "@/lib/auth";
 import { listInstances, listLinks, listTemplates } from "@/lib/widgets";
@@ -26,6 +27,7 @@ export default async function WidgetsPage({
 
   return (
     <AdminShell username={username}>
+      <WidgetLiveRefresh />
       <header className="console-page-header console-dashboard-header">
         <div>
           <h1>Widgets</h1>

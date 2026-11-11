@@ -13,6 +13,13 @@ async function analyticsAt(page: Page, path: string) {
   }, path);
 }
 
+function waitForLiveStream(page: Page, topic: "analytics" | "widgets") {
+  return page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/admin/live" && url.searchParams.get("topic") === topic;
+  }, { timeout: 8_000 });
+}
+
 function requestAt(context: BrowserContext, url: string, headers?: Record<string, string>) {
   const address = new URL(url);
   return context.request.get(backendOrigin + address.pathname + address.search, {
@@ -732,6 +739,11 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     await home.click();
     await expect(host).toHaveURL(/\/sign-in$/);
     expect((await analyticsAt(host, endpoint)).status).toBe(401);
+    const unauthenticatedStream = await host.evaluate(async () => {
+      const response = await fetch("/api/admin/live?topic=analytics", { signal: AbortSignal.timeout(5000) });
+      return response.status;
+    });
+    expect(unauthenticatedStream).toBe(401);
     for (const path of ["/admin/analytics", `/admin/analytics/${platform.legacy.widgetId}`]) {
       await host.goto(path);
       await expect(host).toHaveURL(/\/sign-in$/);
@@ -754,17 +766,30 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     await page.getByRole("link", { name: "Embed links", exact: true }).click();
     const second = await createLink(page);
 
-    await page.clock.install();
+    await page.bringToFront();
+    const overviewStream = waitForLiveStream(page, "analytics");
     await page.getByRole("navigation", { name: "Admin navigation" }).getByRole("link", { name: "Analytics" }).click();
     await expect(page.getByRole("heading", { name: "Analytics", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh analytics", exact: true })).toBeVisible();
+    const streamHeaders = (await overviewStream).headers();
+    expect(streamHeaders["content-type"]).toContain("text/event-stream");
+    expect(streamHeaders["cache-control"]).toContain("no-store");
+    expect(streamHeaders["cache-control"]).toContain("no-transform");
     const loads = page.locator('[data-metric="views"]');
     await expect(loads).toHaveText("0");
+    const overviewNavigation = await page.evaluate(() => performance.timeOrigin);
 
     const widget = host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" });
+    await test.step("update the open analytics overview after a visitor reloads an embed", async () => {
+      await host.goto(`${approvedOrigin}/${first.id}`);
+      await expect(widget).toBeVisible();
+      await expect(loads).toHaveText("1", { timeout: 8_000 });
+      await host.reload();
+      await expect(widget).toBeVisible();
+      await expect(loads).toHaveText("2", { timeout: 8_000 });
+      expect(await page.evaluate(() => performance.timeOrigin)).toBe(overviewNavigation);
+    });
     for (const url of [
-      `${approvedOrigin}/${first.id}`,
-      `${approvedOrigin}/${first.id}`,
       `${otherOrigin}/${first.id}`,
       `${otherOrigin}/${second.id}`,
     ]) {
@@ -779,9 +804,7 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, ...secondVisitor })).status()).toBe(200);
     expect((await requestAt(visitor, firstEmbed, { ...secondVisitor, Referer: otherOrigin })).status()).toBe(403);
 
-    await page.bringToFront();
-    await page.clock.fastForward(31_000);
-    await expect(loads).toHaveText("6");
+    await expect(loads).toHaveText("6", { timeout: 8_000 });
     await page.screenshot({ path: testInfo.outputPath("analytics.png"), fullPage: true });
     await page.setViewportSize({ width: 320, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
@@ -811,14 +834,41 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     await page.getByRole("button", { name: "30 days", exact: true }).click();
     expect(await (await rangeRequest).json()).toMatchObject({ range: 30, views: 6 });
 
-    await page.goto(`/admin/analytics/${firstWidget}`);
-    await expect(page.getByRole("heading", { name: "Analytics first widget", exact: true })).toBeVisible();
-    await expect(loads).toHaveText("5");
+    await test.step("update an open analytics report for one widget", async () => {
+      const widgetStream = waitForLiveStream(page, "analytics");
+      await page.goto(`/admin/analytics/${firstWidget}`);
+      await expect(page.getByRole("heading", { name: "Analytics first widget", exact: true })).toBeVisible();
+      expect((await widgetStream).ok()).toBe(true);
+      await expect(loads).toHaveText("5");
+      await host.goto(`${approvedOrigin}/${first.id}`);
+      await expect(widget).toBeVisible();
+      await expect(loads).toHaveText("6", { timeout: 8_000 });
+    });
+
     await page.goto(`${secondPath}?tab=links`);
-    await second.row.getByText("Manage link", { exact: true }).click();
-    await second.row.getByText("Disable link", { exact: true }).click();
-    await second.row.getByRole("button", { name: "Confirm disable", exact: true }).click();
-    await expect(second.row.getByText("Disabled", { exact: true })).toBeVisible();
+    await test.step("update an inventory open in a different admin session", async () => {
+      const observer = await browser.newContext({ baseURL: adminOrigin, ignoreHTTPSErrors: true });
+      try {
+        const inventory = await observer.newPage();
+        await inventory.goto("/sign-in");
+        await inventory.bringToFront();
+        const inventoryStream = waitForLiveStream(inventory, "widgets");
+        await signIn(inventory, credentials.username, credentials.password);
+        expect((await inventoryStream).ok()).toBe(true);
+        const linkCount = inventory.getByRole("link", { name: "Open Analytics second widget", exact: true });
+        await expect(linkCount).toContainText("1 of 1 active link");
+        const inventoryNavigation = await inventory.evaluate(() => performance.timeOrigin);
+
+        await second.row.getByText("Manage link", { exact: true }).click();
+        await second.row.getByText("Disable link", { exact: true }).click();
+        await second.row.getByRole("button", { name: "Confirm disable", exact: true }).click();
+        await expect(second.row.getByText("Disabled", { exact: true })).toBeVisible();
+        await expect(linkCount).toContainText("0 of 1 active link", { timeout: 8_000 });
+        expect(await inventory.evaluate(() => performance.timeOrigin)).toBe(inventoryNavigation);
+      } finally {
+        await observer.close();
+      }
+    });
     const disabled = await requestAt(visitor, `${adminOrigin}/embed/${second.id}`, { ...iframeNavigation, ...secondVisitor, Referer: otherOrigin });
     expect(disabled.status()).toBe(404);
     const widgetReport = await analyticsAt(page, `${endpoint}?widgetId=${secondWidget}`);
