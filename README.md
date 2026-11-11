@@ -269,7 +269,7 @@ Playwright uses a disposable database and HTTPS origins to exercise administrato
 
 The popup browser test uses a disposable HTTPS host fixture with the script in its head and a popup button. Run it with `pnpm test:e2e tests/popup.spec.ts` after building.
 
-The default build and browser tests use `next start`, matching the Hostinger configuration. To test the server used by Docker, set `WIDGET_STANDALONE=1` for both `pnpm exec next build` and `pnpm test:e2e`. GitHub Actions checks the Compose build and SQLite volume persistence in a separate test container.
+The default build and browser tests use `next start`, matching the Hostinger configuration. To test the server used by Docker, set `WIDGET_STANDALONE=1` for both `pnpm exec next build` and `pnpm test:e2e`.
 
 ## Adding a template
 
