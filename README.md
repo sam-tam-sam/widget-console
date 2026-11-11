@@ -82,6 +82,28 @@ If a Cloudflare security rule challenges requests to your app hostname, exempt w
 
 3. Save the rule and test the embedded widget in a private browser window on a website listed in **Approved origins**. This one-time Cloudflare setting covers future widget links on the same hostname.
 
+### Allow PWA install files through Cloudflare
+
+Browsers need to fetch the public manifest and icons when they install Widget Console. A challenge response contains HTML, so it cannot serve as a manifest or icon. Check **Security Events** for these paths on the app hostname to identify the matching rule. [Cloudflare challenge responses](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/challenge-pages/detect-response/)
+
+If a custom challenge rule is responsible, wrap its existing expression in parentheses and append the condition below. Replace `widgets.example.com` with the hostname in `WIDGET_PUBLIC_ORIGIN`. This exception applies only to GET requests for public install files.
+
+```text
+and not (
+  http.host eq "widgets.example.com"
+  and http.request.method eq "GET"
+  and http.request.uri.path in {
+    "/manifest.webmanifest"
+    "/pwa/apple-touch-icon-v2.png"
+    "/pwa/favicon-v2.svg"
+    "/pwa/icon-192-v2.png"
+    "/pwa/icon-512-v2.png"
+  }
+)
+```
+
+After deployment, check that the manifest and icon URLs return HTTP `200` with the expected manifest or image content type in a private browser window. If an existing installation still shows a placeholder icon, remove that installation and install it again from the HTTPS site. On iPhone and iPad, use **Share → Add to Home Screen**. [WebKit Home Screen icons](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/#new-fallback-icon) · [Chrome manifest updates](https://web.dev/articles/manifest-updates)
+
 ## Verify and troubleshoot
 
 Run the health check from a shell on the Docker host. Use your configured host port if you changed it.

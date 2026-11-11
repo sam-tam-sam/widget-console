@@ -12,11 +12,14 @@ import "./analytics.css";
 
 const ranges = [7, 30, 90] as const;
 const updateFormat = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+const reportDates = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
 export function AnalyticsDashboard({ initial, widgetId }: { initial: AnalyticsReport; widgetId?: string }) {
   const { report, range, status, selectRange, refresh } = useAnalytics(initial, widgetId);
   const restricted = status === "unauthorized" || status === "unavailable";
   const heading = widgetId ? report.widgetNames[widgetId] : "Analytics";
+  const firstDay = report.daily.at(0)?.date;
+  const lastDay = report.daily.at(-1)?.date;
 
   return (
     <div className="analytics-dashboard">
@@ -33,7 +36,11 @@ export function AnalyticsDashboard({ initial, widgetId }: { initial: AnalyticsRe
         {widgetId && <Button asChild variant="outline"><Link href={`/admin/widgets/${widgetId}`}>Widget settings</Link></Button>}
       </header>
 
-      <div className="analytics-toolbar">
+      <section className="analytics-toolbar" aria-label="Report controls">
+        <div className="analytics-period">
+          <span>Reporting period</span>
+          <strong>{firstDay && lastDay ? reportDates.formatRange(new Date(firstDay), new Date(lastDay)) : `Last ${report.range} days`}</strong>
+        </div>
         <div className="analytics-ranges" role="group" aria-label="Date range">
           {ranges.map((days) => (
             <Button
@@ -54,7 +61,7 @@ export function AnalyticsDashboard({ initial, widgetId }: { initial: AnalyticsRe
             <RefreshCw aria-hidden="true" />
           </Button>
         </div>
-      </div>
+      </section>
 
       {status === "unauthorized" && <p className="analytics-alert" role="alert">Your session ended. <Link href="/sign-in">Sign in again</Link> to view analytics.</p>}
       {status === "unavailable" && <p className="analytics-alert" role="alert">This widget is unavailable. <Link href="/admin/analytics">View all analytics</Link>.</p>}

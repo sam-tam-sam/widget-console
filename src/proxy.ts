@@ -1,8 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { applicationOrigin } from "@/lib/embeds";
+import { pwaIcons } from "@/lib/pwa-icons";
 
 const loopback = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?$/i;
 const embedPath = /^\/embed\/[a-z0-9-]+$/i;
+const versionedIcons = new Set(Object.values(pwaIcons));
 
 function notFound() {
   return new NextResponse("Not found", {
@@ -23,7 +25,11 @@ export function proxy(request: NextRequest) {
   response.headers.set("Referrer-Policy", "same-origin");
   response.headers.set("X-Frame-Options", "DENY");
   response.headers.set("X-Content-Type-Options", "nosniff");
-  if (!path.startsWith("/_next/")) response.headers.set("Cache-Control", "private, no-store");
+  if (versionedIcons.has(path)) {
+    response.headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  } else if (!path.startsWith("/_next/")) {
+    response.headers.set("Cache-Control", "private, no-store");
+  }
   return response;
 }
 

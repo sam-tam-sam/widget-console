@@ -1,6 +1,7 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { randomBytes, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { pwaIcons } from "../src/lib/pwa-icons";
 import { adminOrigin, approvedOrigin, backendOrigin, otherOrigin, startPlatform } from "./platform-server";
 
 const iframeNavigation = { "Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate" };
@@ -113,9 +114,10 @@ test("runtime credentials, widget settings, and production embed management", as
       await expect(manifestLink).toHaveAttribute("href", "/manifest.webmanifest");
       const manifestResponse = await requestAt(visitor, `${adminOrigin}/manifest.webmanifest`);
       expect(manifestResponse.status()).toBe(200);
+      expect(manifestResponse.headers()["cache-control"]).toContain("no-store");
       const manifest: { icons: { src: string; sizes: string; purpose?: string }[] } = await manifestResponse.json();
       expect(manifest).toMatchObject({
-        name: "Widget Console", start_url: "/admin", scope: "/", display: "standalone",
+        id: "/admin", name: "Widget Console", start_url: "/admin", scope: "/", display: "standalone",
         icons: expect.arrayContaining([
           expect.objectContaining({ sizes: "192x192", purpose: "any" }),
           expect.objectContaining({ sizes: "512x512", purpose: "any" }),
@@ -123,11 +125,22 @@ test("runtime credentials, widget settings, and production embed management", as
         ]),
       });
       const appleIcon = page.locator('link[rel="apple-touch-icon"]');
-      await expect(appleIcon).toHaveAttribute("href", /^\/apple-icon\.png(?:\?|$)/);
-      for (const path of new Set([...manifest.icons.map((icon) => icon.src), "/apple-icon.png"])) {
+      await expect(appleIcon).toHaveAttribute("href", pwaIcons.apple);
+      const icons = new Map([
+        ...manifest.icons.map(({ src, sizes }) => [src, sizes] as const),
+        [pwaIcons.apple, "180x180"],
+      ]);
+      for (const [path, sizes] of icons) {
         const icon = await requestAt(visitor, new URL(path, adminOrigin).href);
         expect(icon.status()).toBe(200);
         expect(icon.headers()["content-type"]).toContain("image/png");
+        expect(icon.headers()["cache-control"]).toContain("immutable");
+        const body = await icon.body();
+        expect(`${body.readUInt32BE(16)}x${body.readUInt32BE(20)}`).toBe(sizes);
+      }
+      await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute("href", pwaIcons.favicon);
+      for (const path of ["/icon1.png", "/icon2.png", "/apple-icon.png", "/icon.svg"]) {
+        expect((await requestAt(visitor, `${adminOrigin}${path}`)).status()).toBe(200);
       }
       await signIn(page, "admin", "123456");
       await expect(page.getByText("The username or password is incorrect.")).toBeVisible();
@@ -388,6 +401,10 @@ test("runtime credentials, widget settings, and production embed management", as
         await page.setViewportSize({ width, height: 844 });
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
         expect(await page.locator(".console-sidebar").evaluate((sidebar) => sidebar.clientHeight)).toBeLessThan(160);
+        const navigation = page.getByRole("navigation", { name: "Admin navigation" });
+        await expect(navigation).toHaveCSS("position", "fixed");
+        await expect(navigation.getByRole("link", { name: "Widgets", exact: true })).toHaveAttribute("aria-current", "page");
+        await expect(navigation.getByRole("link", { name: "Analytics", exact: true })).toBeInViewport();
         await expect(page.getByRole("link", { name: "New widget", exact: true })).toBeInViewport();
         await expect(page.getByRole("button", { name: "Delete widget Site details", exact: true })).toBeInViewport();
       }
@@ -768,6 +785,12 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     await page.screenshot({ path: testInfo.outputPath("analytics.png"), fullPage: true });
     await page.setViewportSize({ width: 320, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    const navigation = page.getByRole("navigation", { name: "Admin navigation" });
+    await expect(navigation.getByRole("link", { name: "Analytics", exact: true })).toHaveAttribute("aria-current", "page");
+    const beforeScroll = await navigation.boundingBox();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    expect(await navigation.boundingBox()).toEqual(beforeScroll);
+    await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: testInfo.outputPath("analytics-mobile.png"), fullPage: true });
     await page.setViewportSize({ width: 1280, height: 900 });
     const report = await analyticsAt(page, `${endpoint}?range=7`);

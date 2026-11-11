@@ -21,7 +21,7 @@ export function AnalyticsSites({ origins }: { origins: AnalyticsReport["origins"
           <tbody>
             {origins.map(({ origin, views, visitorDays }) => (
               <tr key={origin}>
-                <th scope="row">{origin}</th>
+                <th scope="row" title={origin}>{origin.replace(/^https:\/\//, "")}</th>
                 <td>{countFormat.format(views)}</td>
                 <td><VisitorCount count={visitorDays} /></td>
               </tr>

@@ -2,11 +2,12 @@ import type { AnalyticsReport } from "@/lib/analytics-report";
 import { countFormat } from "./analytics-metrics";
 
 const dateFormat = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+const axisCount = new Intl.NumberFormat("en-US", { notation: "compact" });
 const dateLabel = (date: string) => dateFormat.format(new Date(date));
 
 export function AnalyticsTrend({ daily }: { daily: AnalyticsReport["daily"] }) {
-  const largestDay = Math.max(1, ...daily.map(({ views }) => views));
-  const hasLoads = daily.some(({ views }) => views > 0);
+  const largestDay = Math.max(0, ...daily.map(({ views }) => views));
+  const step = Math.max(1, Math.ceil(largestDay / 4));
   const first = daily.at(0)?.date;
   const last = daily.at(-1)?.date;
   const middle = daily[Math.floor(daily.length / 2)]?.date;
@@ -15,29 +16,33 @@ export function AnalyticsTrend({ daily }: { daily: AnalyticsReport["daily"] }) {
     <section className="console-panel analytics-panel" aria-labelledby="analytics-trend-heading">
       <header className="analytics-panel-heading">
         <h2 id="analytics-trend-heading">Daily activity</h2>
-        <span>UTC</span>
+        <span>Embed loads · UTC</span>
       </header>
-      <div className="analytics-plot">
-        <div className="analytics-bars" aria-hidden="true">
-          {daily.map(({ date, views }) => (
-            <div key={date} className="analytics-bar-track">
-              <span
-                className="analytics-bar"
-                style={{ height: views > 0 ? `max(3px, ${views / largestDay * 100}%)` : 0 }}
-                title={`${dateLabel(date)} · ${countFormat.format(views)} loads`}
-              />
+      {largestDay > 0 && first && middle && last ? (
+        <div className="analytics-chart" aria-hidden="true">
+          <div className="analytics-scale">
+            {[4, 3, 2, 1, 0].map((tick) => <span key={tick}>{axisCount.format(tick * step)}</span>)}
+          </div>
+          <div className="analytics-plot">
+            <div className="analytics-bars">
+              {daily.map(({ date, views }) => (
+                <div key={date} className="analytics-bar-track" data-latest={date === last || undefined}>
+                  <span
+                    className="analytics-bar"
+                    style={{ height: views > 0 ? `max(2px, ${views / (step * 4) * 100}%)` : 0 }}
+                    title={`${dateLabel(date)} · ${countFormat.format(views)} loads`}
+                  />
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+          <div className="analytics-axis">
+            <span>{dateLabel(first)}</span>
+            <span>{dateLabel(middle)}</span>
+            <span>{dateLabel(last)}</span>
+          </div>
         </div>
-        {!hasLoads && <p className="analytics-plot-empty">No embed loads in this period.</p>}
-      </div>
-      {first && middle && last && (
-        <div className="analytics-axis" aria-hidden="true">
-          <span>{dateLabel(first)}</span>
-          <span>{dateLabel(middle)}</span>
-          <span>{dateLabel(last)}</span>
-        </div>
-      )}
+      ) : <p className="analytics-plot-empty">No embed loads in this period.</p>}
       <details className="console-disclosure analytics-daily-detail">
         <summary>Daily totals</summary>
         <table className="analytics-table">

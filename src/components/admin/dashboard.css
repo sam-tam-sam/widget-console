@@ -437,10 +437,40 @@
 }
 
 @media (max-width: 550px) {
-  .console-sidebar { padding: .5rem .9rem; }
+  html:has(.console-shell) {
+    --console-mobile-nav-space: calc(4rem + env(safe-area-inset-bottom, 0px));
+    scroll-padding-block-end: var(--console-mobile-nav-space);
+  }
+  .console-sidebar {
+    grid-template-areas: "brand profile";
+    padding: .5rem .9rem;
+  }
   .console-brand { min-height: 44px; margin: 0; }
+  .console-nav {
+    position: fixed;
+    z-index: 2;
+    inset: auto 0 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .4rem;
+    padding: .4rem max(.9rem, env(safe-area-inset-right, 0px)) calc(.4rem + env(safe-area-inset-bottom, 0px)) max(.9rem, env(safe-area-inset-left, 0px));
+    border-top: 1px solid var(--console-sidebar-border);
+    background: var(--console-sidebar);
+  }
+  .console-nav a {
+    justify-content: center;
+    min-height: 3rem;
+    padding: .5rem .35rem;
+    border-radius: .65rem;
+  }
+  .console-nav a[aria-current="page"] {
+    color: #fff;
+    font-weight: 670;
+  }
+  .console-nav a[aria-current="page"] svg { color: #c6ead2; }
+  .console-nav a:focus-visible { outline-offset: -3px; }
   .console-profile [data-slot="button"] { border: 1px solid var(--console-sidebar-border); }
-  .console-main { padding: 1.15rem .9rem 2.5rem; }
+  .console-main { padding: 1.15rem .9rem calc(2.5rem + var(--console-mobile-nav-space, 4rem)); }
   .console-page-header { align-items: start; flex-direction: column; gap: .75rem; }
   .console-dashboard-header {
     display: grid;

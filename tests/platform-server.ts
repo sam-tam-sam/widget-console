@@ -81,6 +81,7 @@ export async function startPlatform(credentials: Credentials, { trustCloudflare 
   const legacy = seedLegacyWidget(database);
   mkdirSync(".next/standalone/.next", { recursive: true });
   cpSync(".next/static", ".next/standalone/.next/static", { recursive: true });
+  cpSync("public", ".next/standalone/public", { recursive: true });
 
   const hostPages = new Set([new URL(approvedOrigin).host, new URL(otherOrigin).host]);
   const gateway = createServer(testCertificate(), (incoming, outgoing) => {
