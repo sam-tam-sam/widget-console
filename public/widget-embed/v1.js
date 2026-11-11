@@ -33,7 +33,8 @@
         integerBetween(config.sessionLimit, 1, 20) &&
         profiles.every(([profile]) => {
           const size = config.sizes?.[profile];
-          return integerBetween(size?.width, 1, maxSize) && integerBetween(size?.height, 1, maxSize);
+          return integerBetween(size?.width, 1, maxSize) && integerBetween(size?.height, 1, maxSize) &&
+            (size.scale === undefined || integerBetween(size.scale, 10, 100));
         });
     }
     return config.kind === "announcement" &&
@@ -124,7 +125,20 @@
       Object.assign(frame.element.style, {
         width: `${size.width}px`, height: `${size.height}px`,
         maxWidth: `calc(100% - ${gutter}px)`, maxHeight: `calc(100% - ${gutter}px)`,
+        transform: `scale(${(size.scale ?? 100) / 100})`,
       });
+    }
+
+    function animateOpening() {
+      if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+      dialog.animate?.([
+        { backgroundColor: "transparent" }, { backgroundColor: dialog.style.backgroundColor },
+      ], { duration: 180, easing: "ease-out" });
+      // Animate separately from the saved scale so the panel can resize while it opens.
+      frame.element.animate?.([
+        { opacity: 0, translate: "0 12px" },
+        { opacity: 1, translate: "0 0" },
+      ], { duration: 240, easing: "cubic-bezier(.2, .72, .26, 1)" });
     }
 
     function release() {
@@ -173,6 +187,7 @@
         }
         frame.element.focus();
         frame.opened();
+        animateOpening();
       }, failed);
       setSize();
       document.body.append(dialog);

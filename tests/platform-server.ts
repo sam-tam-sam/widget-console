@@ -97,12 +97,14 @@ function testCertificate() {
 
 function scriptedHost(id: string, query: URLSearchParams) {
   const snippet = `<script defer src="${adminOrigin}/widget-embed/v1.js" data-widget-id="${id}"></script>`;
+  const scripts = `${snippet}${query.get("duplicate") === "1" ? snippet : ""}`;
+  const placement = query.get("placement");
   return `<!doctype html>
   <html lang="en">
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Script embed host fixture</title>
-    ${snippet}${query.get("duplicate") === "1" ? snippet : ""}
+    ${placement === "body" || placement === "late" ? "" : scripts}
     <style>
       body { margin: 0; font: 1rem/1.5 system-ui, sans-serif; color: #20332b; background: #f4f5f2; }
       #site-header {
@@ -121,7 +123,16 @@ function scriptedHost(id: string, query: URLSearchParams) {
       <p>The navigation and controls on this page belong to the host.</p>
       <button id="offer-trigger" type="button">Open offer</button>
       <button id="host-control" type="button">Host control</button>
+      ${placement === "body" ? `<div class="elementor-widget-html">${scripts}</div>` : ""}
     </main>
+    ${placement === "late" ? `<script>
+      window.addEventListener("load", () => {
+        const script = document.createElement("script");
+        script.src = "${adminOrigin}/widget-embed/v1.js";
+        script.dataset.widgetId = "${id}";
+        document.body.append(script);
+      }, { once: true });
+    </script>` : ""}
   </body>
   </html>`;
 }

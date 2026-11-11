@@ -8,13 +8,17 @@ import { FormMessage } from "@/components/admin/form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { WidgetInstance } from "@/widgets/contracts";
+import type { WidgetImage } from "@/widgets/contracts";
 
-export function WidgetImageSettings({ id, image }: { id: string; image: WidgetInstance["image"] }) {
+type ImageResult = FormResult & { image?: WidgetImage | null };
+
+export function WidgetImageSettings({ id, image }: { id: string; image?: WidgetImage }) {
   const router = useRouter();
   const inputId = useId();
   const [pending, setPending] = useState<"POST" | "DELETE">();
   const [state, setState] = useState<FormResult>({});
+  const [update, setUpdate] = useState<{ previousSrc: string | undefined; image: WidgetImage | null }>();
+  const currentImage = update && update.previousSrc === image?.src ? update.image : image;
 
   async function changeImage(method: "POST" | "DELETE", form?: HTMLFormElement) {
     if (pending) return;
@@ -25,9 +29,10 @@ export function WidgetImageSettings({ id, image }: { id: string; image: WidgetIn
         method,
         body: form ? new FormData(form) : undefined,
       });
-      const result: FormResult = await response.json();
+      const result: ImageResult = await response.json();
       setState(result);
       if (response.ok) {
+        if (result.image !== undefined) setUpdate({ previousSrc: image?.src, image: result.image });
         form?.reset();
         router.refresh();
       }
@@ -49,17 +54,17 @@ export function WidgetImageSettings({ id, image }: { id: string; image: WidgetIn
         <h2 id="widget-image-heading">Popup image</h2>
         <p>The image sets the default popup dimensions. Open Size to adjust the width and height for each screen.</p>
       </div>
-      {image && (
+      {currentImage && (
         <figure className="console-widget-image">
           {/* Uploaded images use the widget's existing media URL and require no optimization request. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={image.src} alt="" width={image.width} height={image.height} />
-          <figcaption>Uploaded image · {image.width} × {image.height}px</figcaption>
+          <img src={currentImage.src} alt="" width={currentImage.width} height={currentImage.height} />
+          <figcaption>Uploaded image · {currentImage.width} × {currentImage.height}px</figcaption>
         </figure>
       )}
       <form onSubmit={upload} className="console-form" aria-busy={Boolean(pending)}>
         <div className="console-field">
-          <Label htmlFor={inputId}>{image ? "Choose a replacement image" : "Choose an image"}</Label>
+          <Label htmlFor={inputId}>{currentImage ? "Choose a replacement image" : "Choose an image"}</Label>
           <Input
             id={inputId}
             name="image"
@@ -74,9 +79,9 @@ export function WidgetImageSettings({ id, image }: { id: string; image: WidgetIn
         <div className="console-image-actions">
           <Button type="submit" disabled={Boolean(pending)}>
             {pending === "POST" && <LoaderCircle className="animate-spin" aria-hidden="true" />}
-            {image ? "Replace image" : "Upload image"}
+            {currentImage ? "Replace image" : "Upload image"}
           </Button>
-          {image && (
+          {currentImage && (
             <Button type="button" variant="outline" disabled={Boolean(pending)} onClick={() => void changeImage("DELETE")}>
               {pending === "DELETE" && <LoaderCircle className="animate-spin" aria-hidden="true" />}
               Remove image

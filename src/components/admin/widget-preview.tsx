@@ -23,7 +23,7 @@ export function WidgetPreview({ instanceId }: { instanceId: string }) {
     // The authenticated server request supplies one timestamp to both renders of the preview.
     // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
-    return <WidgetHostPreview key={channel} srcDoc={srcDoc} configuration={preview.hostEmbed} channel={channel} now={now} />;
+    return <WidgetHostPreview key={channel} srcDoc={srcDoc} imageSrc={preview.imageSrc} configuration={preview.hostEmbed} channel={channel} now={now} />;
   }
   return <WidgetPreviewFrame srcDoc={srcDoc} heights={preview.embedHeights} />;
 }

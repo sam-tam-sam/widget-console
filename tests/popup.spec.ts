@@ -58,8 +58,21 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       }
 
       await uploadInput.setInputFiles({ name: "offer.png", mimeType: "image/png", buffer: bytes });
-      await uploadButton.click();
-      await expect(page.getByText(/Uploaded image.*960 × 480px/)).toBeVisible();
+      const refreshRequests = (url: URL) => url.pathname === widgetPath && url.searchParams.has("_rsc");
+      let resumeRefresh!: () => void;
+      const refreshAllowed = new Promise<void>((resolve) => { resumeRefresh = resolve; });
+      await page.route(refreshRequests, async (route) => {
+        await refreshAllowed;
+        await route.continue();
+      });
+      try {
+        await uploadButton.click();
+        await expect(page.getByText(/Uploaded image.*960 × 480px/)).toBeVisible();
+        await expect(page.locator(".console-widget-image img")).toHaveJSProperty("naturalWidth", 960);
+      } finally {
+        resumeRefresh();
+        await page.unrouteAll({ behavior: "wait" });
+      }
       await page.getByLabel("Image alternative text", { exact: true }).fill("Offer image");
       await page.getByLabel("Open popup", { exact: true }).selectOption("click");
       await page.getByLabel("Host trigger selector", { exact: true }).fill("#offer-trigger");
@@ -74,6 +87,10 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       await expect(page.getByLabel("Desktop height (px)", { exact: true })).toHaveAttribute("placeholder", "480");
       await page.getByLabel("Phone width (px)", { exact: true }).fill("280");
       await page.getByLabel("Phone height (px)", { exact: true }).fill("220");
+      const phoneScale = page.getByRole("slider", { name: "Phone scale (%)", exact: true });
+      await phoneScale.press("End");
+      for (let step = 0; step < 20; step++) await phoneScale.press("ArrowLeft");
+      await expect(phoneScale).toHaveValue("80");
       await page.getByRole("button", { name: "Save sizes", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: /sizes saved/i })).toBeVisible();
     });
@@ -100,19 +117,42 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
 
     await test.step("restart the production process and preview the saved image without a view", async () => {
       await platform.restart(credentials);
-      await page.goto(widgetPath + "?tab=preview");
-      await page.getByRole("button", { name: "Open popup", exact: true }).click();
-      const preview = page.frameLocator('iframe[title="Widget preview"]');
-      await expect(preview.getByRole("img", { name: "Offer image" })).toBeVisible();
-      await expect.poll(() => preview.getByRole("img", { name: "Offer image" }).evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(960);
+      // A restrictive proxy may block media requests from an opaque iframe.
+      const media = "**/widget-media/*";
+      await page.route(media, (route) => route.request().frame() === page.mainFrame() ? route.continue() : route.abort());
+      try {
+        await page.goto(widgetPath + "?tab=preview");
+        await page.getByRole("button", { name: "320px", exact: true }).click();
+        const previewOpener = page.getByRole("button", { name: "Open popup", exact: true });
+        await previewOpener.click();
+        const preview = page.frameLocator('iframe[title="Widget preview"]');
+        const image = preview.getByRole("img", { name: "Offer image" });
+        await expect(image).toBeVisible();
+        await expect(image).toHaveAttribute("src", /^data:image\/png;base64,/);
+        await expect(image).toHaveJSProperty("naturalWidth", 960);
+        const previewPanel = page.locator(".widget-host-preview-popup");
+        await expect(previewPanel).toHaveCSS("width", "280px");
+        await expect(previewPanel).toHaveCSS("transform", "matrix(0.8, 0, 0, 0.8, 0, 0)");
+        const previewBackdrop = page.getByRole("dialog", { name: "Popup preview" });
+        await previewBackdrop.click({ position: { x: 4, y: 4 } });
+        await expect(previewBackdrop).toBeHidden();
+        await expect(previewOpener).toBeFocused();
+      } finally {
+        await page.unroute(media);
+      }
       expect(await recordCount(page, widgetId)).toBe(0);
     });
 
-    await test.step("open and dismiss on three screen sizes using the same published link", async () => {
-      for (const [index, width] of [320, 390, 1280].entries()) {
+    await test.step("open and dismiss at three widths with head, body, and late scripts", async () => {
+      for (const [index, { width, placement }] of [
+        { width: 320, placement: "head" },
+        { width: 390, placement: "body" },
+        { width: 1280, placement: "late" },
+      ].entries()) {
         await host.setViewportSize({ width, height: 720 });
+        await host.emulateMedia({ reducedMotion: index === 1 ? "reduce" : "no-preference" });
         const ready = host.waitForResponse((response) => new URL(response.url()).pathname === `/api/embed-config/${linkId}`);
-        await host.goto(hostUrl);
+        await host.goto(`${hostUrl}&placement=${placement}`);
         expect((await ready).status()).toBe(200);
         await expect(dialog).toHaveCount(0);
         expect(await recordCount(page, widgetId)).toBe(index);
@@ -121,6 +161,13 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
         await expect(frame).toHaveCount(1);
         await expect(frame).toHaveCSS("width", width < 600 ? "280px" : "960px");
         await expect(frame).toHaveCSS("height", width < 600 ? "220px" : "480px");
+        await expect.poll(async () => {
+          const rect = await frame.boundingBox();
+          return rect && [Math.round(rect.width), Math.round(rect.height)];
+        }).toEqual(width < 600 ? [224, 176] : [960, 480]);
+        if (index === 1) {
+          expect(await frame.evaluate((element) => element.getAnimations().length)).toBe(0);
+        }
         const image = popup.getByRole("img", { name: "Offer image" });
         await expect(image).toHaveCSS("object-fit", "contain");
         await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).naturalWidth)).toBe(960);
@@ -128,6 +175,7 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
         const close = popup.getByRole("button", { name: "Close popup", exact: true });
         await expect(close).toBeFocused();
         if (index === 0) await close.press("Escape");
+        else if (index === 1) await host.mouse.click(4, 4);
         else await close.click();
         await expect(dialog).toBeHidden();
         await expect(opener).toBeFocused();
@@ -156,13 +204,19 @@ test("popup uploads persist and only actual opens count on the host", async ({ p
       await host.clock.install({ time: now });
       await host.clock.pauseAt(now + 1000);
       const ready = host.waitForResponse((response) => new URL(response.url()).pathname === `/api/embed-config/${linkId}`);
-      await host.goto(hostUrl);
+      await host.goto(`${hostUrl}&placement=body`);
       await (await ready).finished();
       await host.clock.runFor(4000);
       await expect(dialog).toHaveCount(0);
       await host.clock.runFor(1500);
       await expect(dialog).toBeVisible();
       await host.clock.resume();
+      await visitor.route("https://example.com/offer", (route) => route.fulfill({ body: "Offer fixture" }));
+      const opened = host.waitForEvent("popup");
+      await popup.getByRole("img", { name: "Offer image" }).click();
+      const destination = await opened;
+      await expect(destination).toHaveURL("https://example.com/offer");
+      await destination.close();
       const content = popup.getByRole("region", { name: "Popup content", exact: true });
       await content.focus();
       await content.press("End");

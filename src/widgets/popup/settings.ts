@@ -23,6 +23,7 @@ const sizeFields = profileKeys.flatMap((key): WidgetConfigurationField[] => {
   return [
     { key: `${key}Width`, label: `${label} width (px)`, description: `${range}. Leave blank for automatic sizing.`, control: "number", min: minWidth, max: maxSize, step: 1, section: label, tab: "size" },
     { key: `${key}Height`, label: `${label} height (px)`, control: "number", min: minHeight, max: maxSize, step: 1, section: label, tab: "size" },
+    { key: `${key}Scale`, label: `${label} scale (%)`, description: "Scales the whole popup while keeping the width and height settings.", control: "range", min: 10, max: 100, step: 1, section: label, tab: "size" },
   ];
 });
 
@@ -101,8 +102,8 @@ export function parsePopupSettings(input: unknown): WidgetConfiguration {
   if (frequency) settings.frequency = frequency;
   if (sessionLimit !== undefined) settings.sessionLimit = sessionLimit;
 
-  for (const { key, label, min } of sizeFields) {
-    const size = optionalInteger(value[key], label, min ?? minHeight, maxSize);
+  for (const { key, label, min, max } of sizeFields) {
+    const size = optionalInteger(value[key], label, min ?? minHeight, max ?? maxSize);
     if (size !== undefined) settings[key] = size;
   }
   return settings;
@@ -113,10 +114,12 @@ export function popupSize(instance: WidgetInstance, key: SizeProfile) {
   const limits = profiles[key];
   const widthOverride = configuration[`${key}Width`];
   const heightOverride = configuration[`${key}Height`];
+  const scaleOverride = configuration[`${key}Scale`];
+  const scale = typeof scaleOverride === "number" ? scaleOverride : 100;
   const preferredWidth = typeof widthOverride === "number" ? widthOverride : undefined;
   const preferredHeight = typeof heightOverride === "number" ? heightOverride : undefined;
   if (!image) {
-    return { width: preferredWidth ?? Math.min(560, limits.width), height: preferredHeight ?? 380 };
+    return { width: preferredWidth ?? Math.min(560, limits.width), height: preferredHeight ?? 380, scale };
   }
 
   const ratio = image.width / image.height;
@@ -125,5 +128,5 @@ export function popupSize(instance: WidgetInstance, key: SizeProfile) {
   const automaticWidth = Math.min(image.width, limits.width, Math.max(minHeight, (preferredHeight ?? limits.height) - copySpace) * ratio);
   const width = preferredWidth ?? Math.max(hasCopy ? 280 : minWidth, Math.round(automaticWidth));
   const height = preferredHeight ?? Math.min(limits.height, Math.max(minHeight, Math.round(width / ratio) + copySpace));
-  return { width, height };
+  return { width, height, scale };
 }

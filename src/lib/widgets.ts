@@ -342,6 +342,7 @@ export function renderInstancePreview(id: string, frame?: WidgetHostFrame) {
   const { template, instance, hostEmbed } = saved;
   return {
     name: instance.name,
+    imageSrc: instance.image?.src,
     embedHeights: resolveWidgetEmbedHeights(template, instance.configuration.embedHeights),
     hostEmbed,
     ...renderWidgetDocument(template, instance, frame),

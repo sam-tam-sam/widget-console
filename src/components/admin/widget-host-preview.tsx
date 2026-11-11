@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { WidgetHostEmbed } from "@/widgets/contracts";
+import { usePreviewImage } from "./use-preview-image";
 import { WidgetPreviewWidths } from "./widget-preview-frame";
 
 const profiles = [
@@ -21,8 +22,9 @@ function ScheduleTime({ value, fallback }: { value: number | null; fallback: str
   return <time dateTime={iso}>{iso.slice(0, 16).replace("T", " ")}</time>;
 }
 
-export function WidgetHostPreview({ srcDoc, configuration, channel, now }: {
+export function WidgetHostPreview({ srcDoc, imageSrc, configuration, channel, now }: {
   srcDoc: string;
+  imageSrc?: string;
   configuration: WidgetHostEmbed;
   channel: string;
   now: number;
@@ -34,6 +36,7 @@ export function WidgetHostPreview({ srcDoc, configuration, channel, now }: {
   const upcoming = announcement?.startsAt != null && now < announcement.startsAt;
   const ended = announcement?.endsAt != null && now >= announcement.endsAt;
   const [visible, setVisible] = useState(!popup && !upcoming && !ended);
+  const readySrcDoc = usePreviewImage(srcDoc, imageSrc, visible);
   const [height, setHeight] = useState(80);
   const frame = useRef<HTMLIFrameElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -52,7 +55,7 @@ export function WidgetHostPreview({ srcDoc, configuration, channel, now }: {
 
   useEffect(() => {
     const element = frame.current;
-    if (!visible || !element) return;
+    if (!visible || !element || !readySrcDoc) return;
 
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== "null" || event.source !== element.contentWindow) return;
@@ -70,9 +73,9 @@ export function WidgetHostPreview({ srcDoc, configuration, channel, now }: {
     };
     window.addEventListener("message", onMessage);
     // Set the content after subscribing, including when the preview is opened by a full page load.
-    element.srcdoc = srcDoc;
+    element.srcdoc = readySrcDoc;
     return () => window.removeEventListener("message", onMessage);
-  }, [channel, popup, srcDoc, visible]);
+  }, [channel, popup, readySrcDoc, visible]);
 
   const size = popup ? configuration.sizes[profile.device] : undefined;
   const previewFrame = (
@@ -127,8 +130,16 @@ export function WidgetHostPreview({ srcDoc, configuration, channel, now }: {
             tabIndex={-1}
             className="widget-host-preview-overlay"
             style={{ padding: profile.inset }}
+            aria-busy={!readySrcDoc}
+            onClick={(event) => {
+              if (event.target === event.currentTarget) setVisible(false);
+            }}
           >
-            <div className="widget-host-preview-popup" style={size}>{previewFrame}</div>
+            <div
+              className="widget-host-preview-popup"
+              data-loading={!readySrcDoc || undefined}
+              style={{ width: size.width, height: size.height, transform: `scale(${size.scale / 100})` }}
+            >{previewFrame}</div>
           </div>
         )}
       </div>

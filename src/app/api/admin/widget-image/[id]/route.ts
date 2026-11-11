@@ -3,13 +3,14 @@ import { publishAdminChange } from "@/lib/admin-live";
 import { getAdminSession, isAdminMutation } from "@/lib/auth";
 import { validatedWidgetImage } from "@/lib/widget-image-upload";
 import { getInstance, listTemplates, removeWidgetImage, saveWidgetImage, WidgetError } from "@/lib/widgets";
+import type { WidgetImage } from "@/widgets/contracts";
 
 export const runtime = "nodejs";
 
 type Context = { params: Promise<{ id: string }> };
 
-function result(message: string, status = 200) {
-  return Response.json({ message, error: status >= 400 }, { status, headers: { "Cache-Control": "no-store" } });
+function result(message: string, status = 200, image?: WidgetImage | null) {
+  return Response.json({ message, error: status >= 400, image }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
 async function changeImage(request: Request, { params }: Context) {
@@ -33,7 +34,7 @@ async function changeImage(request: Request, { params }: Context) {
 
   revalidatePath(`/admin/widgets/${instance.id}`);
   publishAdminChange("widgets", instance.id);
-  return result(remove ? "Image removed." : "Image saved.");
+  return result(remove ? "Image removed." : "Image saved.", 200, remove ? null : getInstance(instance.id)?.image ?? null);
 }
 
 export async function POST(request: Request, context: Context) {

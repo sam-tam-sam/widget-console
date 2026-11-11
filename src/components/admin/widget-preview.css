@@ -64,9 +64,26 @@
   align-items: center;
   justify-content: center;
   background: rgb(0 0 0 / .68);
+  animation: widget-preview-backdrop 180ms ease-out;
 }
 
-.widget-host-preview-popup { max-width: 100%; max-height: 100%; }
+.widget-host-preview-popup {
+  max-width: 100%;
+  max-height: 100%;
+  animation: widget-preview-open 240ms cubic-bezier(.2, .72, .26, 1);
+}
+
+.widget-host-preview-popup[data-loading] { visibility: hidden; animation: none; }
+
+@keyframes widget-preview-backdrop { from { background-color: transparent; } }
+
+@keyframes widget-preview-open {
+  from { opacity: 0; translate: 0 12px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .widget-host-preview-overlay, .widget-host-preview-popup { animation: none; }
+}
 
 .widget-host-preview-frame {
   display: block;

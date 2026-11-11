@@ -19,6 +19,7 @@ export const popupStyles = `
     overflow: auto;
     overscroll-behavior: contain;
   }
+  .popup-media-link { display: block; }
   .popup-media {
     display: block;
     width: 100%;
@@ -75,5 +76,5 @@ export const popupStyles = `
   .popup-action:hover { text-decoration: underline; }
   .popup-close:hover { background: var(--widget-accent-soft); }
   .popup :focus-visible { outline: 3px solid var(--widget-focus); outline-offset: 2px; }
-  .popup-scroll:focus-visible { outline-offset: -3px; }
+  .popup-scroll:focus-visible, .popup-media-link:focus-visible { outline-offset: -3px; }
 `;

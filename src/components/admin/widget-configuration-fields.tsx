@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { WidgetConfiguration, WidgetConfigurationField } from "@/widgets/contracts";
+import { WidgetRangeField } from "./widget-range-field";
 
 function ConfigurationField({ field, value, placeholder }: {
   field: WidgetConfigurationField;
@@ -15,9 +16,11 @@ function ConfigurationField({ field, value, placeholder }: {
     "aria-describedby": field.description ? `${id}-help` : undefined,
   };
   return (
-    <div className="console-field">
+    <div className={field.control === "range" ? "console-field console-range-field" : "console-field"}>
       <Label htmlFor={id}>{field.label}</Label>
-      {field.control === "select" ? (
+      {field.control === "range" ? (
+        <WidgetRangeField {...input} defaultValue={input.defaultValue || placeholder || String(field.max)} min={field.min} max={field.max} step={field.step} />
+      ) : field.control === "select" ? (
         <select {...input} className="console-select">
           {field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>

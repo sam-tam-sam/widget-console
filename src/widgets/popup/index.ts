@@ -11,14 +11,22 @@ const closeIcon = '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" s
 function renderPopup({ configuration, image }: WidgetInstance) {
   const { ctaLabel, ctaUrl, description, imageAlt, title } = configuration;
   const heading = typeof title === "string" ? title : !image && !description && !ctaUrl ? name : "";
-  const media = image
-    ? `<img class="popup-media" src="${escapeHtml(image.src)}" alt="${escapeHtml(typeof imageAlt === "string" ? imageAlt : "")}" width="${image.width}" height="${image.height}">`
+  const actionAttributes = typeof ctaUrl === "string"
+    ? `href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener noreferrer"`
     : "";
+  const actionLabel = escapeHtml(typeof ctaLabel === "string" ? ctaLabel : "Learn more");
+  const alt = typeof imageAlt === "string" ? escapeHtml(imageAlt) : "";
+  const imageMarkup = image
+    ? `<img class="popup-media" src="${escapeHtml(image.src)}" alt="${alt}" width="${image.width}" height="${image.height}">`
+    : "";
+  const media = imageMarkup && actionAttributes
+    ? `<a class="popup-media-link" ${actionAttributes}${alt ? "" : ` aria-label="${actionLabel}"`}>${imageMarkup}</a>`
+    : imageMarkup;
   const copy = [
     heading ? `<h1 id="popup-title" dir="auto">${escapeHtml(heading)}</h1>` : "",
     typeof description === "string" ? `<p dir="auto">${escapeHtml(description)}</p>` : "",
-    typeof ctaUrl === "string"
-      ? `<a class="popup-action" dir="auto" href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(typeof ctaLabel === "string" ? ctaLabel : "Learn more")}</a>`
+    actionAttributes
+      ? `<a class="popup-action" dir="auto" ${actionAttributes}>${actionLabel}</a>`
       : "",
   ].join("");
 

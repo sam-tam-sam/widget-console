@@ -20,9 +20,10 @@ export function WidgetSizeSettings({ widget, template }: { widget: WidgetInstanc
     const hostEmbed = fields.length ? renderInstancePreview(widget.id)?.hostEmbed : undefined;
     const placeholders: Record<string, string> = {};
     if (hostEmbed?.kind === "popup") {
-      for (const [device, { width, height }] of Object.entries(hostEmbed.sizes)) {
+      for (const [device, { width, height, scale }] of Object.entries(hostEmbed.sizes)) {
         placeholders[`${device}Width`] = String(width);
         placeholders[`${device}Height`] = String(height);
+        placeholders[`${device}Scale`] = String(scale);
       }
     }
     return (
@@ -31,7 +32,7 @@ export function WidgetSizeSettings({ widget, template }: { widget: WidgetInstanc
           <div className="console-section-heading">
             <h2 id="widget-size-heading">{fields.length ? "Popup dimensions" : "Announcement size"}</h2>
             <p>{fields.length
-              ? "Enter a width and height in pixels for each screen. Leave a field empty to use the automatic size. The popup shrinks to fit the available screen."
+              ? "Set the width, height, and visual scale for each screen. Leave a dimension empty to use its automatic size."
               : "The announcement matches the width of its mount element and grows to fit its content."}</p>
           </div>
           {fields.length > 0 && (
