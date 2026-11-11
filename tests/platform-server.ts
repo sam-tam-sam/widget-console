@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { once } from "node:events";
-import { cpSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:https";
 import { dirname, resolve } from "node:path";
@@ -153,9 +153,6 @@ export async function startPlatform(credentials: Credentials, {
 }: PlatformOptions = {}) {
   const database = resolve(".data/e2e", randomUUID(), "platform.sqlite");
   const legacy = seedLegacyWidget(database, historicalViews, seedRetiredAnnouncement);
-  mkdirSync(".next/standalone/.next", { recursive: true });
-  cpSync(".next/static", ".next/standalone/.next/static", { recursive: true });
-  cpSync("public", ".next/standalone/public", { recursive: true });
 
   const hostPages = new Set([new URL(approvedOrigin).host, new URL(otherOrigin).host]);
   const gateway = createServer(testCertificate(), (incoming, outgoing) => {
@@ -208,11 +205,10 @@ export async function startPlatform(credentials: Credentials, {
   }
 
   async function startBackend({ username, password }: Credentials) {
-    const backend = spawn(process.execPath, [".next/standalone/server.js"], {
+    const backend = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", loopback], {
       stdio: "inherit",
       env: {
         ...process.env,
-        HOSTNAME: loopback,
         PORT: String(backendPort),
         WIDGET_DB_PATH: database,
         WIDGET_PUBLIC_ORIGIN: adminOrigin,

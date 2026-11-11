@@ -2,7 +2,8 @@ import type { NextConfig } from "next";
 import { pwaIcons } from "./src/lib/pwa-icons";
 
 const config: NextConfig = {
-  output: "standalone",
+  output: process.env.WIDGET_STANDALONE === "1" ? "standalone" : undefined,
+  outputFileTracingRoot: process.cwd(),
   poweredByHeader: false,
   serverExternalPackages: ["argon2"],
   outputFileTracingIncludes: {

@@ -2,6 +2,33 @@
 
 Widget Console lets an administrator configure widgets, preview them, and publish iframe embeds to approved websites. It runs as one Next.js app with a persistent SQLite database. The dashboard and embeds share one HTTPS hostname. Visitors on approved websites can use embedded widgets without signing in.
 
+## Deploy on Hostinger
+
+In hPanel, create a Node.js Web App for `widget.freedomprocessing3.com`. Import `sam-tam-sam/widget-console` from GitHub or upload a ZIP with `package.json` at its root. [Hostinger Node.js deployment guide](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/)
+
+| Setting | Value |
+| --- | --- |
+| Framework | Next.js |
+| Branch for GitHub deployment | `codex/hostinger` |
+| Node version | `24.x` |
+| Root directory | `./` |
+| Build and output settings | Default for Next.js. The `build` script uses Webpack. |
+| Start command, if requested | `pnpm start` |
+
+Add these values in hPanel under **Environment variables**.
+
+| Variable | Value |
+| --- | --- |
+| `WIDGET_PUBLIC_ORIGIN` | `https://widget.freedomprocessing3.com` |
+| `WIDGET_ADMIN_USERNAME` | Your administrator username, such as `widget-admin`. |
+| `WIDGET_ADMIN_PASSWORD` | A unique password of at least 15 characters. |
+| `WIDGET_DB_PATH` | The absolute path to a SQLite file in a private writable directory. |
+| `WIDGET_TRUST_CLOUDFLARE` | `0` for the default Hostinger deployment. |
+
+Use File Manager to locate the app's directory. Keep the database outside `hbuilds` and `public_html`, which Hostinger replaces on deploy. For example, if the app directory is `/home/<account>/domains/widget.freedomprocessing3.com`, set the database path to `/home/<account>/domains/widget.freedomprocessing3.com/widget-data/widget-console.sqlite` with the actual account name. Use the same path on future deployments. [Hostinger deployment directories](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/#file-structure-after-deployment)
+
+After deploying, sign in at `https://widget.freedomprocessing3.com/sign-in`. Create a test popup, upload an image, and verify the image remains after redeploying. To embed it on the main site, approve `https://freedomprocessing3.com` in **Approved origins** and copy the script from **Embed links**. A fresh SQLite file starts with a new set of widgets and links.
+
 ## Quick start with Dockhand
 
 You need a Docker host managed by Dockhand and a hostname you can route through Cloudflare Tunnel. In Dockhand, open **Stacks → From Git** and select the Docker environment running your tunnel connector. [Dockhand Git integration](https://dockhand.pro/manual/#git-integration)
@@ -15,7 +42,7 @@ You need a Docker host managed by Dockhand and a hostname you can route through 
 | Compose file path | [`compose.yaml`](compose.yaml) |
 | Build images on deploy | Enabled |
 
-Copy the settings from [`.env.example`](.env.example) into Dockhand's **Environment variables** panel. Set `WIDGET_PUBLIC_ORIGIN` to your HTTPS origin, choose a `WIDGET_ADMIN_USERNAME`, and fill in `WIDGET_ADMIN_PASSWORD` with a unique password of at least 15 characters. Keep the real password in Dockhand.
+In Dockhand's **Environment variables** panel, set `WIDGET_PUBLIC_ORIGIN` to your HTTPS origin, choose a `WIDGET_ADMIN_USERNAME`, and fill in `WIDGET_ADMIN_PASSWORD` with a unique password of at least 15 characters. Keep the real password in Dockhand.
 
 Deploy the stack and wait for the `app` container to show **Healthy**. The image is built on the Docker host from the configured branch. The runtime image contains the Next.js standalone output and the files it needs to serve requests. [Docker multi-stage builds](https://docs.docker.com/build/building/multi-stage/)
 
