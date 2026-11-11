@@ -7,7 +7,9 @@ const connectionMs = 60_000;
 const encoder = new TextEncoder();
 
 export async function GET(request: Request) {
-  if (!await getAdminSession()) return new Response(null, { status: 401, headers });
+  const session = await getAdminSession();
+  if (!session) return new Response(null, { status: 401, headers });
+  const { isActive } = session;
 
   const topic = new URL(request.url).searchParams.get("topic");
   if (topic !== "analytics" && topic !== "widgets") {
@@ -17,9 +19,20 @@ export async function GET(request: Request) {
   let cancel: () => void;
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      let closed = false;
       function send(message: string) {
-        if (controller.desiredSize && controller.desiredSize > 0) {
-          controller.enqueue(encoder.encode(message));
+        if (closed) return;
+        try {
+          // Keep the authorization check and delivery in the same synchronous turn.
+          if (!isActive()) {
+            close();
+            return;
+          }
+          if ((controller.desiredSize ?? 0) > 0) {
+            controller.enqueue(encoder.encode(message));
+          }
+        } catch {
+          close();
         }
       }
 
@@ -28,17 +41,9 @@ export async function GET(request: Request) {
           send(`event: change\ndata: ${change.widgetId}\n\n`);
         }
       });
-      const heartbeat = setInterval(async () => {
-        try {
-          if (await getAdminSession()) send(": heartbeat\n\n");
-          else close();
-        } catch {
-          close();
-        }
-      }, heartbeatMs);
+      const heartbeat = setInterval(() => send(": heartbeat\n\n"), heartbeatMs);
       const timeout = setTimeout(close, connectionMs);
 
-      let closed = false;
       function cleanup() {
         if (closed) return false;
         closed = true;

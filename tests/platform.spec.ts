@@ -28,6 +28,27 @@ function requestAt(context: BrowserContext, url: string, headers?: Record<string
   });
 }
 
+function reportEmbedLoad(context: BrowserContext, id: string, {
+  origin,
+  key,
+  eventId = randomUUID(),
+  eventTime = Date.now(),
+}: { origin: string; key?: string; eventId?: string; eventTime?: number }) {
+  const host = new URL(adminOrigin).host;
+  return context.request.post(`${backendOrigin}/api/embed-analytics/${id}`, {
+    headers: {
+      Host: host,
+      "X-Forwarded-Host": host,
+      "X-Forwarded-Proto": "https",
+      "X-Widget-Origin": origin,
+      "X-Widget-Event-Id": eventId,
+      "X-Widget-Event-Time": String(eventTime),
+      ...(key ? { Authorization: `Bearer ${key}` } : {}),
+    },
+    maxRedirects: 0,
+  });
+}
+
 async function signIn(page: Page, username: string, password: string) {
   await page.getByLabel("Username", { exact: true }).fill(username);
   await page.getByLabel("Password", { exact: true }).fill(password);
@@ -103,7 +124,7 @@ async function expectFrameBlocked(host: Page, origin: string, linkId: string) {
 test("runtime credentials, widget settings, and production embed management", async ({ page, browser }, testInfo) => {
   const initial = { username: "widget-test-owner", password: randomBytes(24).toString("base64url") };
   const rotated = { username: "widget-test-rotated", password: randomBytes(24).toString("base64url") };
-  const platform = await startPlatform(initial);
+  const platform = await startPlatform(initial, { historicalViews: 3 });
   const visitor = await browser.newContext({ baseURL: adminOrigin, ignoreHTTPSErrors: true });
   try {
     await test.step("protect the dashboard and sign in with runtime credentials", async () => {
@@ -182,7 +203,7 @@ test("runtime credentials, widget settings, and production embed management", as
       await expect(legacyHost.frameLocator("iframe").locator("body")).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await legacyHost.close();
       const analytics = await analyticsAt(page, `/api/admin/widget-analytics?widgetId=${widgetId}`);
-      expect(analytics.data).toMatchObject({ views: 1, visitorDays: null, measuredViews: 0 });
+      expect(analytics.data).toMatchObject({ views: 3, publisherViews: 0, visitorDays: null, measuredViews: 0 });
 
       await page.goto(`/admin/widgets/${widgetId}`);
       await page.getByLabel("Widget name", { exact: true }).fill("Legacy widget renamed");
@@ -716,9 +737,14 @@ test("runtime credentials, widget settings, and production embed management", as
   }
 });
 
-test("recover from unknown pages and measure approved embeds in the live dashboard", async ({ page, browser }, testInfo) => {
+test("recover from unknown pages and report authenticated publisher loads in the live dashboard", async ({ page, browser }, testInfo) => {
   const credentials = { username: "analytics-owner", password: randomBytes(24).toString("base64url") };
-  const platform = await startPlatform(credentials, { trustCloudflare: true });
+  const approvedKey = randomBytes(32).toString("hex");
+  const otherKey = randomBytes(32).toString("hex");
+  const platform = await startPlatform(credentials, {
+    trustCloudflare: true,
+    publisherKeys: { [approvedOrigin]: approvedKey, [otherOrigin]: otherKey },
+  });
   const agent = "Widget Console analytics integration test";
   const visitor = await browser.newContext({
     baseURL: adminOrigin,
@@ -780,31 +806,54 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     const overviewNavigation = await page.evaluate(() => performance.timeOrigin);
 
     const widget = host.frameLocator("iframe").getByRole("heading", { name: "Fee Check" });
-    await test.step("update the open analytics overview after a visitor reloads an embed", async () => {
-      await host.goto(`${approvedOrigin}/${first.id}`);
-      await expect(widget).toBeVisible();
-      await expect(loads).toHaveText("1", { timeout: 8_000 });
-      await host.reload();
-      await expect(widget).toBeVisible();
-      await expect(loads).toHaveText("2", { timeout: 8_000 });
-      expect(await page.evaluate(() => performance.timeOrigin)).toBe(overviewNavigation);
-    });
-    for (const url of [
-      `${otherOrigin}/${first.id}`,
-      `${otherOrigin}/${second.id}`,
-    ]) {
-      await host.goto(url);
-      await expect(widget).toBeVisible();
-    }
-    await expectFrameBlocked(host, approvedOrigin, second.id);
     const firstEmbed = `${adminOrigin}/embed/${first.id}`;
     const secondVisitor = { "CF-Connecting-IP": "192.0.2.11", "User-Agent": agent };
-    expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, ...secondVisitor, Referer: otherOrigin })).status()).toBe(200);
-    expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, "User-Agent": agent, Referer: approvedOrigin, "CF-Connecting-IP": "" })).status()).toBe(200);
-    expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, ...secondVisitor })).status()).toBe(200);
-    expect((await requestAt(visitor, firstEmbed, { ...secondVisitor, Referer: otherOrigin })).status()).toBe(403);
+    await test.step("serve approved frames without counting ordinary or forged iframe requests", async () => {
+      await host.goto(`${approvedOrigin}/${first.id}`);
+      await expect(widget).toBeVisible();
+      await host.reload();
+      await expect(widget).toBeVisible();
+      for (const url of [
+        `${otherOrigin}/${first.id}`,
+        `${otherOrigin}/${second.id}`,
+      ]) {
+        await host.goto(url);
+        await expect(widget).toBeVisible();
+      }
+      await expectFrameBlocked(host, approvedOrigin, second.id);
+      expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, ...secondVisitor, Referer: otherOrigin })).status()).toBe(200);
+      expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, "User-Agent": agent, Referer: approvedOrigin, "CF-Connecting-IP": "" })).status()).toBe(200);
+      expect((await requestAt(visitor, firstEmbed, { ...iframeNavigation, ...secondVisitor })).status()).toBe(200);
+      expect((await requestAt(visitor, firstEmbed, { ...secondVisitor, Referer: otherOrigin })).status()).toBe(403);
+      expect((await analyticsAt(page, endpoint)).data).toMatchObject({ views: 0, publisherViews: 0 });
+      await expect(loads).toHaveText("0");
+    });
 
-    await expect(loads).toHaveText("6", { timeout: 8_000 });
+    const approvedPublisher = { origin: approvedOrigin, key: approvedKey };
+    const otherPublisher = { origin: otherOrigin, key: otherKey };
+    await test.step("authorize each publisher and validate fresh event metadata", async () => {
+      expect((await reportEmbedLoad(visitor, first.id, { origin: approvedOrigin })).status()).toBe(401);
+      expect((await reportEmbedLoad(visitor, first.id, { ...approvedPublisher, key: randomBytes(32).toString("hex") })).status()).toBe(401);
+      expect((await reportEmbedLoad(visitor, first.id, { ...approvedPublisher, key: otherKey })).status()).toBe(401);
+      expect((await reportEmbedLoad(visitor, second.id, approvedPublisher)).status()).toBe(404);
+      expect((await reportEmbedLoad(visitor, randomUUID(), approvedPublisher)).status()).toBe(404);
+      expect((await reportEmbedLoad(visitor, first.id, { ...approvedPublisher, eventId: "invalid-id" })).status()).toBe(400);
+      expect((await reportEmbedLoad(visitor, first.id, { ...approvedPublisher, eventTime: Date.now() - 600_000 })).status()).toBe(400);
+      expect((await reportEmbedLoad(visitor, first.id, { ...approvedPublisher, eventTime: Date.now() + 600_000 })).status()).toBe(400);
+      expect((await analyticsAt(page, endpoint)).data).toMatchObject({ views: 0, publisherViews: 0 });
+    });
+
+    await test.step("count authenticated publisher events once and update the open overview", async () => {
+      const event = { ...approvedPublisher, eventId: randomUUID(), eventTime: Date.now() };
+      const duplicate = await Promise.all([reportEmbedLoad(visitor, first.id, event), reportEmbedLoad(visitor, first.id, event)]);
+      expect(duplicate.map((response) => response.status())).toEqual([204, 204]);
+      await expect(loads).toHaveText("1", { timeout: 8_000 });
+      expect((await reportEmbedLoad(visitor, first.id, approvedPublisher)).status()).toBe(204);
+      expect((await reportEmbedLoad(visitor, first.id, otherPublisher)).status()).toBe(204);
+      expect((await reportEmbedLoad(visitor, second.id, otherPublisher)).status()).toBe(204);
+      await expect(loads).toHaveText("4", { timeout: 8_000 });
+      expect(await page.evaluate(() => performance.timeOrigin)).toBe(overviewNavigation);
+    });
     await page.screenshot({ path: testInfo.outputPath("analytics.png"), fullPage: true });
     await page.setViewportSize({ width: 320, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
@@ -820,29 +869,28 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     expect(report.status).toBe(200);
     expect(report.cacheControl).toContain("no-store");
     expect(report.data).toMatchObject({
-      views: 6, visitorDays: 2, measuredViews: 5, range: 7,
+      views: 4, publisherViews: 4, visitorDays: null, measuredViews: 0, range: 7,
       origins: expect.arrayContaining([
-        expect.objectContaining({ origin: approvedOrigin, views: 3, visitorDays: 1 }),
-        expect.objectContaining({ origin: otherOrigin, views: 3, visitorDays: 2 }),
+        expect.objectContaining({ origin: approvedOrigin, views: 2, visitorDays: null }),
+        expect.objectContaining({ origin: otherOrigin, views: 2, visitorDays: null }),
       ]),
       widgets: expect.arrayContaining([
-        expect.objectContaining({ widgetId: firstWidget, views: 5, visitorDays: 2 }),
-        expect.objectContaining({ widgetId: secondWidget, views: 1, visitorDays: 1 }),
+        expect.objectContaining({ widgetId: firstWidget, views: 3, visitorDays: null }),
+        expect.objectContaining({ widgetId: secondWidget, views: 1, visitorDays: null }),
       ]),
     });
     const rangeRequest = page.waitForResponse((response) => response.url().includes(`${endpoint}?range=30`));
     await page.getByRole("button", { name: "30 days", exact: true }).click();
-    expect(await (await rangeRequest).json()).toMatchObject({ range: 30, views: 6 });
+    expect(await (await rangeRequest).json()).toMatchObject({ range: 30, views: 4, publisherViews: 4 });
 
     await test.step("update an open analytics report for one widget", async () => {
       const widgetStream = waitForLiveStream(page, "analytics");
       await page.goto(`/admin/analytics/${firstWidget}`);
       await expect(page.getByRole("heading", { name: "Analytics first widget", exact: true })).toBeVisible();
       expect((await widgetStream).ok()).toBe(true);
-      await expect(loads).toHaveText("5");
-      await host.goto(`${approvedOrigin}/${first.id}`);
-      await expect(widget).toBeVisible();
-      await expect(loads).toHaveText("6", { timeout: 8_000 });
+      await expect(loads).toHaveText("3");
+      expect((await reportEmbedLoad(visitor, first.id, approvedPublisher)).status()).toBe(204);
+      await expect(loads).toHaveText("4", { timeout: 8_000 });
     });
 
     await page.goto(`${secondPath}?tab=links`);
@@ -871,29 +919,37 @@ test("recover from unknown pages and measure approved embeds in the live dashboa
     });
     const disabled = await requestAt(visitor, `${adminOrigin}/embed/${second.id}`, { ...iframeNavigation, ...secondVisitor, Referer: otherOrigin });
     expect(disabled.status()).toBe(404);
+    expect((await reportEmbedLoad(visitor, second.id, otherPublisher)).status()).toBe(404);
     const widgetReport = await analyticsAt(page, `${endpoint}?widgetId=${secondWidget}`);
-    expect(widgetReport.data).toMatchObject({ views: 1, visitorDays: 1 });
+    expect(widgetReport.data).toMatchObject({ views: 1, publisherViews: 1, visitorDays: null });
 
-    await test.step("filter repeated analytics loads while continuing to serve the widget", async () => {
-      const before = await analyticsAt(page, `${endpoint}?widgetId=${firstWidget}`);
-      const repeatedSource = { "CF-Connecting-IP": "192.0.2.30", Referer: approvedOrigin };
-      // Cross at most two accounting windows, even if the fixture starts near a minute boundary.
-      for (let load = 0; load < 26; load++) {
-        const response = await requestAt(visitor, firstEmbed, {
-          ...iframeNavigation, ...repeatedSource, "User-Agent": load % 2 ? agent : `${agent} secondary browser`,
-        });
-        expect(response.status()).toBe(200);
+    await test.step("report loads for a previously issued embed without changing its link", async () => {
+      const [legacy] = platform.legacy.links;
+      await host.goto(`${legacy.origin}/${legacy.id}`);
+      await expect(widget).toBeVisible();
+      const legacyReport = `${endpoint}?widgetId=${platform.legacy.widgetId}`;
+      expect((await analyticsAt(page, legacyReport)).data).toMatchObject({ views: 0, publisherViews: 0 });
+      expect((await reportEmbedLoad(visitor, legacy.id, approvedPublisher)).status()).toBe(204);
+      expect((await analyticsAt(page, legacyReport)).data).toMatchObject({ views: 1, publisherViews: 1 });
+    });
+
+    await test.step("bound publisher writes for one origin without blocking other embeds", async () => {
+      const widgetReport = `${endpoint}?widgetId=${firstWidget}`;
+      const before = await analyticsAt(page, widgetReport);
+      const statuses: number[] = [];
+      // Send enough distinct reports to exceed the quota even across a minute boundary.
+      for (let batch = 0; batch < 6; batch++) {
+        const responses = await Promise.all(Array.from({ length: 21 }, () => reportEmbedLoad(visitor, first.id, approvedPublisher)));
+        statuses.push(...responses.map((response) => response.status()));
       }
-      const after = await analyticsAt(page, `${endpoint}?widgetId=${firstWidget}`);
-      const counted = after.data.views - before.data.views;
-      expect(counted).toBeGreaterThanOrEqual(12);
-      expect(counted).toBeLessThanOrEqual(24);
-
-      await host.setExtraHTTPHeaders({ "CF-Connecting-IP": "192.0.2.31" });
+      expect(statuses.every((status) => status === 204 || status === 429)).toBe(true);
+      expect(statuses).toContain(429);
+      const accepted = statuses.filter((status) => status === 204).length;
+      const after = await analyticsAt(page, widgetReport);
+      expect(after.data.publisherViews).toBe(before.data.publisherViews + accepted);
+      expect((await reportEmbedLoad(visitor, first.id, otherPublisher)).status()).toBe(204);
       await host.goto(`${approvedOrigin}/${first.id}`);
       await expect(widget).toBeVisible();
-      const otherSource = await analyticsAt(page, `${endpoint}?widgetId=${firstWidget}`);
-      expect(otherSource.data.views).toBe(after.data.views + 1);
     });
 
     await test.step("throttle one trusted source without blocking another source's sign-in", async () => {

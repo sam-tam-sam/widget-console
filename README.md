@@ -27,7 +27,8 @@ Deploy the stack and wait for the `app` container to show **Healthy**. The image
 | `WIDGET_BIND_IP` | `127.0.0.1`, which keeps the published port on the Docker host's loopback interface. |
 | `WIDGET_VOLUME_NAME` | `widget-console-data`, the named volume for SQLite. |
 | `WIDGET_NETWORK_NAME` | `widget-console`, the Docker network the app joins. The app's DNS alias stays `widget-console` even if you rename the network. |
-| `WIDGET_TRUST_CLOUDFLARE` | `0`. Use `1` for per-IP sign-in throttling and daily visitor estimates when the app receives requests exclusively through a trusted Cloudflare connector. |
+| `WIDGET_TRUST_CLOUDFLARE` | `0`. Use `1` for per-IP sign-in throttling when the app receives requests exclusively through a trusted Cloudflare connector. |
+| `WIDGET_ANALYTICS_PUBLISHER_KEYS` | Empty. Configure a JSON object mapping approved HTTPS origins to their server credentials to accept [publisher reports](#report-embed-loads-from-a-publisher-server). |
 
 When the app receives a trusted visitor IP, sign-in attempts are limited for that source. The application also limits simultaneous password checks. If the public sign-in page lacks a trusted IP, configure a per-IP rate limit at your proxy for `POST /sign-in` on the app hostname. Keep the iframe challenge exception scoped to the embed path. [Cloudflare rate limiting rules](https://developers.cloudflare.com/waf/rate-limiting-rules/create-zone-dashboard/)
 
@@ -150,11 +151,23 @@ Open **Analytics** in the admin navigation for totals across all widgets, or cho
 
 The Widgets list and Embed links tab also update after changes from another admin session. An open confirmation or a pending form can finish before the new data appears.
 
-An embed load is a request for an enabled widget iframe with an approved HTTPS referrer. Previews and requests that omit their referrer are excluded. The count represents loads rather than time on screen or widget interactions. Data starts accumulating after deployment and stays in the existing SQLite volume for up to 90 days. Replacing an embed link keeps the widget's analytics. Deleting a widget removes its analytics.
+New counts come from authenticated publisher reports. Each report records a publisher's delivery of a page containing the iframe. Existing iframe links work as published. Their GET requests only serve the widget. Publisher reports contribute to the load total and have a separate count in the dashboard.
 
-The analytics counter caps bursts per widget and origin. When Cloudflare supplies a trusted IP, each source has its own limit. Otherwise the app caps unmeasured loads for the widget and origin. Loads above these limits still display the widget. Historical counts keep their original values.
+Historical loads and estimated visitor-days remain visible for their retention period. Historical loads were inferred from request headers. Publisher reports do not collect new visitor identifiers. Analytics stay in the existing SQLite volume for up to 90 days. Replacing an embed link keeps the widget's analytics. Deleting a widget removes its analytics.
 
-Visitor estimates require `WIDGET_TRUST_CLOUDFLARE=1` and a valid visitor IP supplied by Cloudflare. Enable it only when requests reach the app through your trusted Cloudflare connector. The app derives a different visitor key each UTC day and discards the raw IP and user agent after processing the request. **Estimated visitor-days** adds the daily distinct counts, so a visitor can count on more than one day. Coverage shows the share of recorded loads with a visitor signal. [Cloudflare visitor IP header](https://developers.cloudflare.com/fundamentals/reference/http-headers/#cf-connecting-ip)
+#### Report embed loads from a publisher server
+
+1. Generate a separate 32-byte key for each publisher origin with `openssl rand -hex 32`. In Dockhand, set `WIDGET_ANALYTICS_PUBLISHER_KEYS` to a JSON object whose property names are exact HTTPS origins and whose values are the corresponding keys. Use origins without a trailing slash and omit the default HTTPS port. An invalid entry or reused key disables publisher reporting. Save the matching key in each publisher's server configuration. Keep it out of iframe markup, client code, and logs.
+2. When the publisher serves a page containing an active embed, send an HTTPS `POST` with no body to `/api/embed-analytics/<embed-link-id>` on the Widget Console host. Use the UUID from the iframe's existing `/embed/<embed-link-id>` URL. The origin must be approved for that link.
+
+   | Header | Value |
+   | --- | --- |
+   | `Authorization` | `Bearer <publisher-key>`, with the key as 64 lowercase hexadecimal characters. |
+   | `X-Widget-Origin` | Exact publisher origin, such as `https://publisher.example.com`. |
+   | `X-Widget-Event-Id` | A new UUID v4 for each event. |
+   | `X-Widget-Event-Time` | Decimal Unix time in milliseconds, up to five minutes old or 30 seconds ahead. |
+
+3. Treat `204` as success. While the link and approval are active, retrying an accepted event returns `204` without adding another load. For a timeout, `429`, or `503`, retry within the event's validity window using the same ID and timestamp. Each widget and origin can report up to 60 events per minute. A `400` means invalid event metadata, `401` means invalid credentials, and `404` means the link is unavailable for that origin.
 
 ### Fee Check
 
@@ -187,7 +200,7 @@ pnpm exec playwright install chromium --only-shell
 pnpm test:e2e
 ```
 
-Playwright uses a disposable database and HTTPS origins to exercise administrator sign-in, widget management, preview, origin enforcement, and deletion.
+Playwright uses a disposable database and HTTPS origins to exercise administrator sign-in and stream revocation, widget management, preview, existing embed links, origin enforcement, authenticated analytics, and deletion.
 
 ## Adding a template
 

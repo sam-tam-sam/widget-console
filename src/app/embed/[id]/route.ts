@@ -1,5 +1,4 @@
 import { embedSecurityHeaders } from "@/lib/embeds";
-import { recordWidgetEmbedLoad } from "@/lib/widget-analytics";
 import { resolveEmbed } from "@/lib/widgets";
 
 export const runtime = "nodejs";
@@ -26,6 +25,5 @@ export async function GET(
 
   const headers = embedSecurityHeaders(embed.origins, embed.scriptHashes);
   headers.set("Content-Type", "text/html; charset=utf-8");
-  recordWidgetEmbedLoad(request, embed.widgetId, embed.origins);
   return new Response(embed.html, { headers });
 }

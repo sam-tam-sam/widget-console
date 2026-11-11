@@ -231,12 +231,17 @@ export async function getAdminSession() {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-  const session = database().prepare(`
+  const sessionHash = tokenHash(token);
+  const checkSession = database().prepare(`
     SELECT 1 FROM admin_sessions
     WHERE token_hash = ? AND kind = 'admin' AND expires_at > ?
       AND EXISTS (SELECT 1 FROM admin_credentials WHERE id = 1 AND username = ? AND password_hash = ?)
-  `).get(tokenHash(token), Date.now(), admin.username, admin.password_hash);
-  return session ? { username: admin.username } : null;
+  `);
+  const session = {
+    username: admin.username,
+    isActive: () => Boolean(checkSession.get(sessionHash, Date.now(), admin.username, admin.password_hash)),
+  };
+  return session.isActive() ? session : null;
 }
 
 export async function requireAdmin() {

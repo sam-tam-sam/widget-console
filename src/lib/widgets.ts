@@ -303,24 +303,38 @@ export function renderInstancePreview(id: string) {
   return row ? renderSavedInstance(row) : null;
 }
 
-export function resolveEmbed(id: string) {
+function findEnabledEmbed(id: string) {
   if (!uuidPattern.test(id)) return null;
 
-  const row = storage().prepare(`
+  return storage().prepare(`
     SELECT i.id, i.template_key, i.name, i.config_json, i.approved_origins_json, l.origins_json
     FROM widget_embed_links l
     JOIN widget_instances i ON l.instance_id = i.id
     WHERE l.id = ? AND l.enabled = 1
   `).get(id) as EmbedRow | undefined;
+}
 
-  if (!row) return null;
-
+function embedOrigins(row: EmbedRow): string[] | null {
   try {
-    const origins = normalizeOrigins(JSON.parse(row.approved_origins_json ?? row.origins_json));
-    const preview = renderSavedInstance(row);
-    return preview ? { widgetId: row.id, origins, html: preview.html, scriptHashes: preview.scriptHashes } : null;
+    return normalizeOrigins(JSON.parse(row.approved_origins_json ?? row.origins_json));
   } catch (error) {
     if (error instanceof WidgetError || error instanceof SyntaxError) return null;
     throw error;
   }
+}
+
+export function resolveEmbedPolicy(id: string) {
+  const row = findEnabledEmbed(id);
+  if (!row) return null;
+  const origins = embedOrigins(row);
+  return origins ? { widgetId: row.id, origins } : null;
+}
+
+export function resolveEmbed(id: string) {
+  const row = findEnabledEmbed(id);
+  if (!row) return null;
+  const origins = embedOrigins(row);
+  if (!origins) return null;
+  const preview = renderSavedInstance(row);
+  return preview ? { origins, html: preview.html, scriptHashes: preview.scriptHashes } : null;
 }

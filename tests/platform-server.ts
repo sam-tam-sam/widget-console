@@ -17,8 +17,13 @@ export const approvedOrigin = `https://approved.localhost:${gatewayPort}`;
 export const otherOrigin = `https://other.localhost:${gatewayPort}`;
 
 type Credentials = { username: string; password: string };
+type PlatformOptions = {
+  trustCloudflare?: boolean;
+  publisherKeys?: Record<string, string>;
+  historicalViews?: number;
+};
 
-function seedLegacyWidget(database: string) {
+function seedLegacyWidget(database: string, historicalViews: number) {
   const widgetId = randomUUID();
   const links = [approvedOrigin, otherOrigin].map((origin) => ({ id: randomUUID(), origin }));
   mkdirSync(dirname(database), { recursive: true });
@@ -45,6 +50,20 @@ function seedLegacyWidget(database: string) {
     for (const { id, origin } of links) {
       db.prepare("INSERT INTO widget_embed_links VALUES (?, ?, ?, 1, ?)")
         .run(id, widgetId, JSON.stringify([origin]), Date.now());
+    }
+    if (historicalViews > 0) {
+      db.exec(`
+        CREATE TABLE widget_analytics_daily (
+          day TEXT NOT NULL,
+          widget_id TEXT NOT NULL REFERENCES widget_instances(id) ON DELETE CASCADE,
+          origin TEXT NOT NULL,
+          views INTEGER NOT NULL,
+          measured_views INTEGER NOT NULL,
+          PRIMARY KEY (day, widget_id, origin)
+        ) STRICT;
+      `);
+      db.prepare("INSERT INTO widget_analytics_daily VALUES (?, ?, ?, ?, 0)")
+        .run(new Date().toISOString().slice(0, 10), widgetId, approvedOrigin, historicalViews);
     }
   } finally {
     db.close();
@@ -76,9 +95,13 @@ function testCertificate() {
   };
 }
 
-export async function startPlatform(credentials: Credentials, { trustCloudflare = false } = {}) {
+export async function startPlatform(credentials: Credentials, {
+  trustCloudflare = false,
+  publisherKeys,
+  historicalViews = 0,
+}: PlatformOptions = {}) {
   const database = resolve(".data/e2e", randomUUID(), "platform.sqlite");
-  const legacy = seedLegacyWidget(database);
+  const legacy = seedLegacyWidget(database, historicalViews);
   mkdirSync(".next/standalone/.next", { recursive: true });
   cpSync(".next/static", ".next/standalone/.next/static", { recursive: true });
   cpSync("public", ".next/standalone/public", { recursive: true });
@@ -135,6 +158,7 @@ export async function startPlatform(credentials: Credentials, { trustCloudflare 
         WIDGET_ADMIN_USERNAME: username,
         WIDGET_ADMIN_PASSWORD: password,
         WIDGET_TRUST_CLOUDFLARE: trustCloudflare ? "1" : "0",
+        WIDGET_ANALYTICS_PUBLISHER_KEYS: publisherKeys ? JSON.stringify(publisherKeys) : "",
       },
     });
     child = backend;

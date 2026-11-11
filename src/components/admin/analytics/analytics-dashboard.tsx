@@ -78,9 +78,9 @@ export function AnalyticsDashboard({ initial, widgetId }: { initial: AnalyticsRe
           {!widgetId && <AnalyticsWidgets report={report} />}
           <details className="console-disclosure analytics-method">
             <summary>How analytics are counted</summary>
-            <p>Embed loads count requests with an approved site as the referrer. Dashboard previews, loads without a referrer, and excess loads during bursts are excluded.</p>
-            <p>Estimated visitor-days count distinct visitor signals per UTC day, then add those daily totals. The same visitor can count on different days.</p>
-            {!report.visitorTrackingEnabled && <p>Visitor estimates require a trusted Cloudflare connection and WIDGET_TRUST_CLOUDFLARE set to 1.</p>}
+            <p>New loads come from authenticated reports sent by approved publisher servers. Totals also include historical estimates collected before publisher reporting.</p>
+            <p>Visitor-day estimates cover historical activity only. Publisher reports contain no visitor identifiers.</p>
+            {!report.publisherReportingEnabled && <p>Publisher reporting is unconfigured. Existing embeds still display on approved sites.</p>}
             <p>Reports update automatically while this page is visible.</p>
           </details>
         </div>
