@@ -4,12 +4,12 @@ Widget Console lets an administrator configure widgets, preview them, and publis
 
 ## Deploy on Hostinger
 
-In hPanel, create a Node.js Web App for `widget.freedomprocessing3.com`. Import `sam-tam-sam/widget-console` from GitHub or upload a ZIP with `package.json` at its root. [Hostinger Node.js deployment guide](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/)
+In hPanel, open your Node.js Web App on its own HTTPS hostname. Import `sam-tam-sam/widget-console` from GitHub and enable auto-deploy for `main`. For a manual upload, place `package.json` at the root of the ZIP. [Hostinger Node.js deployment guide](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/)
 
 | Setting | Value |
 | --- | --- |
 | Framework | Next.js |
-| Branch for GitHub deployment | `codex/hostinger` |
+| Branch for GitHub deployment | `main` |
 | Node version | `24.x` |
 | Root directory | `./` |
 | Build and output settings | Default for Next.js. The `build` script uses Webpack. |
@@ -19,15 +19,15 @@ Add these values in hPanel under **Environment variables**.
 
 | Variable | Value |
 | --- | --- |
-| `WIDGET_PUBLIC_ORIGIN` | `https://widget.freedomprocessing3.com` |
+| `WIDGET_PUBLIC_ORIGIN` | The app's exact HTTPS origin without a path, such as `https://widgets.example.com`. |
 | `WIDGET_ADMIN_USERNAME` | Your administrator username, such as `widget-admin`. |
 | `WIDGET_ADMIN_PASSWORD` | A unique password of at least 15 characters. |
 | `WIDGET_DB_PATH` | The absolute path to a SQLite file in a private writable directory. |
 | `WIDGET_TRUST_CLOUDFLARE` | `0` for the default Hostinger deployment. |
 
-Use File Manager to locate the app's directory. Keep the database outside `hbuilds` and `public_html`, which Hostinger replaces on deploy. For example, if the app directory is `/home/<account>/domains/widget.freedomprocessing3.com`, set the database path to `/home/<account>/domains/widget.freedomprocessing3.com/widget-data/widget-console.sqlite` with the actual account name. Use the same path on future deployments. [Hostinger deployment directories](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/#file-structure-after-deployment)
+Use the real absolute website directory shown by Hostinger, including the hosting account name. For a new database, append `/widget-data/widget-console.sqlite` to that directory. Keep the SQLite file outside `hbuilds` and `public_html`, which Hostinger replaces on deploy. If the app already has a working database, keep its exact `WIDGET_DB_PATH` and take a backup before deploying. [Find the website path](https://www.hostinger.com/support/1583494-what-is-the-path-to-your-website-s-root-home-directory-and-how-to-change-it-in-hostinger/) · [Hostinger deployment directories](https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/#file-structure-after-deployment)
 
-After deploying, sign in at `https://widget.freedomprocessing3.com/sign-in`. Create a test popup, upload an image, and verify the image remains after redeploying. To embed it on the main site, approve `https://freedomprocessing3.com` in **Approved origins** and copy the script from **Embed links**. A fresh SQLite file starts with a new set of widgets and links.
+After deploying, open `/sign-in` on the configured origin. Verify an existing widget and its embed link after a redeploy. A fresh SQLite file starts with a new set of widgets and links. The existing Dockhand app continues to serve the links on its own hostname from its own volume.
 
 ## Quick start with Dockhand
 
@@ -41,8 +41,9 @@ You need a Docker host managed by Dockhand and a hostname you can route through 
 | Stack name | `widget-console` |
 | Compose file path | [`compose.yaml`](compose.yaml) |
 | Build images on deploy | Enabled |
+| Auto-sync | Enable and select a schedule to deploy changes from `main` automatically. |
 
-In Dockhand's **Environment variables** panel, set `WIDGET_PUBLIC_ORIGIN` to your HTTPS origin, choose a `WIDGET_ADMIN_USERNAME`, and fill in `WIDGET_ADMIN_PASSWORD` with a unique password of at least 15 characters. Keep the real password in Dockhand.
+Copy the settings from [`.env.example`](.env.example) into Dockhand's **Environment variables** panel. Set `WIDGET_PUBLIC_ORIGIN` to your HTTPS origin, choose a `WIDGET_ADMIN_USERNAME`, and fill in `WIDGET_ADMIN_PASSWORD` with a unique password of at least 15 characters. Keep the real password in Dockhand.
 
 Deploy the stack and wait for the `app` container to show **Healthy**. The image is built on the Docker host from the configured branch. The runtime image contains the Next.js standalone output and the files it needs to serve requests. [Docker multi-stage builds](https://docs.docker.com/build/building/multi-stage/)
 
@@ -267,6 +268,8 @@ pnpm test:e2e
 Playwright uses a disposable database and HTTPS origins to exercise administrator sign-in and stream revocation, widget management, preview, existing embed links, origin enforcement, automatic browser counts and replay protection, optional publisher reports, and deletion.
 
 The popup browser test uses a disposable HTTPS host fixture with the script in its head and a popup button. Run it with `pnpm test:e2e tests/popup.spec.ts` after building.
+
+The default build and browser tests use `next start`, matching the Hostinger configuration. To test the server used by Docker, set `WIDGET_STANDALONE=1` for both `pnpm exec next build` and `pnpm test:e2e`. GitHub Actions checks the Compose build and SQLite volume persistence in a separate test container.
 
 ## Adding a template
 

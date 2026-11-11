@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { once } from "node:events";
-import { mkdirSync } from "node:fs";
+import { cpSync, mkdirSync } from "node:fs";
 import { request } from "node:http";
 import { createServer } from "node:https";
 import { dirname, resolve } from "node:path";
@@ -11,6 +11,7 @@ import { setTimeout } from "node:timers/promises";
 const backendPort = 39111;
 const gatewayPort = 39112;
 const loopback = "127.0.0.1";
+const standalone = process.env.WIDGET_STANDALONE === "1";
 export const backendOrigin = `http://${loopback}:${backendPort}`;
 export const adminOrigin = `https://console.localhost:${gatewayPort}`;
 export const approvedOrigin = `https://approved.localhost:${gatewayPort}`;
@@ -153,6 +154,11 @@ export async function startPlatform(credentials: Credentials, {
 }: PlatformOptions = {}) {
   const database = resolve(".data/e2e", randomUUID(), "platform.sqlite");
   const legacy = seedLegacyWidget(database, historicalViews, seedRetiredAnnouncement);
+  if (standalone) {
+    mkdirSync(".next/standalone/.next", { recursive: true });
+    cpSync(".next/static", ".next/standalone/.next/static", { recursive: true });
+    cpSync("public", ".next/standalone/public", { recursive: true });
+  }
 
   const hostPages = new Set([new URL(approvedOrigin).host, new URL(otherOrigin).host]);
   const gateway = createServer(testCertificate(), (incoming, outgoing) => {
@@ -205,10 +211,14 @@ export async function startPlatform(credentials: Credentials, {
   }
 
   async function startBackend({ username, password }: Credentials) {
-    const backend = spawn(process.execPath, ["node_modules/next/dist/bin/next", "start", "--hostname", loopback], {
+    const entry = standalone
+      ? [".next/standalone/server.js"]
+      : ["node_modules/next/dist/bin/next", "start", "--hostname", loopback];
+    const backend = spawn(process.execPath, entry, {
       stdio: "inherit",
       env: {
         ...process.env,
+        HOSTNAME: loopback,
         PORT: String(backendPort),
         WIDGET_DB_PATH: database,
         WIDGET_PUBLIC_ORIGIN: adminOrigin,

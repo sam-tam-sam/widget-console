@@ -1,0 +1,54 @@
+name: Docker deployment check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compose-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      COMPOSE_PROJECT_NAME: widget-console-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      WIDGET_VOLUME_NAME: widget-console-ci-${{ github.run_id }}-${{ github.run_attempt }}-data
+      WIDGET_NETWORK_NAME: widget-console-ci-${{ github.run_id }}-${{ github.run_attempt }}-network
+      WIDGET_PUBLIC_ORIGIN: https://widget-console.example.test
+      WIDGET_ADMIN_USERNAME: widget-ci-admin
+      WIDGET_ADMIN_PASSWORD: docker-smoke-only-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and start the production stack
+        run: docker compose up --build --wait --wait-timeout 60
+
+      - name: Verify sign-in and the public widget loader
+        shell: bash
+        run: |
+          request=(curl --fail --silent --show-error --max-time 10
+            -H "Host: ${WIDGET_PUBLIC_ORIGIN#https://}" -H 'X-Forwarded-Proto: https')
+          "${request[@]}" http://127.0.0.1:3100/sign-in -o "$RUNNER_TEMP/widget-sign-in.html"
+          grep -Fq 'Sign in to Widget Console' "$RUNNER_TEMP/widget-sign-in.html"
+          "${request[@]}" http://127.0.0.1:3100/widget-embed/v1.js | cmp - public/widget-embed/v1.js
+
+      - name: Verify SQLite survives a container replacement
+        shell: bash
+        run: |
+          database=/app/persist/data/widget-console.sqlite
+          previous_inode=$(docker compose exec -T app stat -c '%i' "$database")
+          docker compose up --no-build --force-recreate --wait --wait-timeout 60
+          current_inode=$(docker compose exec -T app stat -c '%i' "$database")
+          test "$current_inode" = "$previous_inode"
+
+      - name: Show container logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Remove disposable stack
+        if: always()
+        run: docker compose down --volumes
