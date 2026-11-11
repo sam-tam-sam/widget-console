@@ -20,7 +20,7 @@ function renderPopup({ configuration, image }: WidgetInstance) {
 
   const { ctaUrl, imageAlt } = configuration;
   const alt = typeof imageAlt === "string" ? escapeHtml(imageAlt) : "";
-  const imageMarkup = `<img class="popup-media" src="${escapeHtml(image.src)}" alt="${alt}" width="${image.width}" height="${image.height}">`;
+  const imageMarkup = `<img class="popup-media" data-widget-ready-image src="${escapeHtml(image.src)}" alt="${alt}" width="${image.width}" height="${image.height}">`;
   const media = typeof ctaUrl === "string"
     ? `<a class="popup-media-link" href="${escapeHtml(ctaUrl)}" target="_blank" rel="noopener noreferrer"${alt ? "" : ' aria-label="Open image link"'}>${imageMarkup}</a>`
     : imageMarkup;

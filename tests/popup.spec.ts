@@ -38,8 +38,14 @@ async function expectArtworkToFit(popup: FrameLocator) {
     const artworkBox = element.querySelector("img")!.getBoundingClientRect();
     const closeBox = element.querySelector("[data-widget-close]")!.getBoundingClientRect();
     return {
-      closeFromTop: closeBox.top - artworkBox.top,
+      closeGap: artworkBox.top - closeBox.bottom,
       closeFromRight: artworkBox.right - closeBox.right,
+      closeRightInset: Math.min(8, artworkBox.width * 0.05, artworkBox.height * 0.05),
+      closeOverflow: Math.max(
+        panelBox.left - closeBox.left,
+        closeBox.right - panelBox.right,
+        panelBox.top - closeBox.top,
+      ),
       imageRatio: artworkBox.width / artworkBox.height,
       artworkOverflow: Math.max(
         panelBox.left - artworkBox.left,
@@ -56,10 +62,10 @@ async function expectArtworkToFit(popup: FrameLocator) {
       }).length,
     };
   });
-  expect(layout.closeFromTop).toBeGreaterThanOrEqual(-1);
-  expect(layout.closeFromTop).toBeLessThanOrEqual(10);
-  expect(layout.closeFromRight).toBeGreaterThanOrEqual(-1);
-  expect(layout.closeFromRight).toBeLessThanOrEqual(10);
+  expect(layout.closeGap).toBeGreaterThan(0);
+  expect(layout.closeGap).toBeLessThanOrEqual(6);
+  expect(Math.abs(layout.closeFromRight - layout.closeRightInset)).toBeLessThanOrEqual(1);
+  expect(layout.closeOverflow).toBeLessThanOrEqual(1);
   expect(layout.imageRatio).toBeCloseTo(960 / 1200, 2);
   expect(layout.artworkOverflow).toBeLessThanOrEqual(1);
   expect(layout.horizontal).toBeLessThanOrEqual(1);
@@ -81,7 +87,7 @@ test("image-only popup uploads automatically and preserves existing embed and se
     await test.step("remove the retired widget, its links, and its analytics on startup", async () => {
       const retired = platform.legacy.retired;
       if (!retired) throw new Error("Expected a retired widget in the fixture");
-      await expect(page.getByText("Legacy widget", { exact: true })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Open Legacy widget", exact: true })).toBeVisible();
       await expect(page.getByText("Retired fixture", { exact: true })).toHaveCount(0);
       const db = new DatabaseSync(platform.database, { readOnly: true });
       try {
@@ -122,22 +128,25 @@ test("image-only popup uploads automatically and preserves existing embed and se
       await page.goto(widgetPath);
     });
 
-    await test.step("reject invalid picks and upload a valid image on file selection", async () => {
-      const png = await page.evaluate(() => {
+    await test.step("upload on file selection and keep only the current valid image", async () => {
+      const pngs = await page.evaluate(() => {
         const canvas = document.createElement("canvas");
         canvas.width = 960;
         canvas.height = 1200;
         const context = canvas.getContext("2d")!;
-        context.fillStyle = "#124b5c";
-        context.fillRect(0, 0, 960, 1200);
-        return canvas.toDataURL("image/png").split(",")[1];
+        return ["#124b5c", "#2e528c"].map((color) => {
+          context.fillStyle = color;
+          context.fillRect(0, 0, 960, 1200);
+          return canvas.toDataURL("image/png").split(",")[1];
+        });
       });
-      const bytes = Buffer.from(png, "base64");
+      const [bytes, replacementBytes] = pngs.map((png) => Buffer.from(png, "base64"));
       const uploadInput = page.getByLabel("Choose an image", { exact: true });
       await expect(page.getByRole("button", { name: "Upload image", exact: true })).toHaveCount(0);
       await expect(page.getByText("Popup content", { exact: true })).toHaveCount(0);
       await expect(page.getByLabel("Button label", { exact: true })).toHaveCount(0);
       await expect(page.getByLabel("Show action button", { exact: true })).toHaveCount(0);
+      await expect(page.getByLabel("Image alternative text", { exact: true })).toHaveCount(0);
       const waitForUpload = () => page.waitForResponse((response) =>
         response.request().method() === "POST" && response.url().endsWith(`/widget-image/${widgetId}`));
 
@@ -175,15 +184,37 @@ test("image-only popup uploads automatically and preserves existing embed and se
       const thumbnail = page.locator(".console-widget-image img");
       const firstImageUrl = await thumbnail.getAttribute("src");
       if (!firstImageUrl) throw new Error("The uploaded image has no media URL");
+      const requestImage = (src: string) => visitor.request.get(`${backendOrigin}${new URL(src).pathname}`, { headers: proxyHeaders });
+      const original = await requestImage(firstImageUrl);
+      expect(original.status()).toBe(200);
       const replacementInput = page.getByLabel("Choose a replacement image", { exact: true });
       await expect(replacementInput).toBeEnabled();
+      const invalidReplacement = waitForUpload();
+      await replacementInput.setInputFiles({ name: "corrupt.png", mimeType: "image/png", buffer: Buffer.from("This is not a PNG.") });
+      expect((await invalidReplacement).status()).toBe(400);
+      await expect(replacementInput).toBeEnabled();
+      await expect(thumbnail).toHaveAttribute("src", firstImageUrl);
+      expect((await requestImage(firstImageUrl)).status()).toBe(200);
+
       const replaced = waitForUpload();
-      await replacementInput.setInputFiles({ name: "offer.png", mimeType: "image/png", buffer: bytes });
+      await replacementInput.setInputFiles({ name: "replacement.png", mimeType: "image/png", buffer: replacementBytes });
       expect((await replaced).ok()).toBe(true);
       await expect(thumbnail).not.toHaveAttribute("src", firstImageUrl);
       await expect(thumbnail).toHaveJSProperty("naturalWidth", 960);
+      const secondImageUrl = await thumbnail.getAttribute("src");
+      if (!secondImageUrl) throw new Error("The replacement image has no media URL");
+      const replacement = await requestImage(secondImageUrl);
+      expect(replacement.status()).toBe(200);
+      expect((await replacement.body()).equals(await original.body())).toBe(false);
+      expect((await requestImage(firstImageUrl)).status()).toBe(404);
+      const db = new DatabaseSync(platform.database, { readOnly: true });
+      try {
+        const id = new URL(secondImageUrl).pathname.split("/").at(-1);
+        expect(db.prepare("SELECT id FROM widget_images WHERE instance_id = ?").all(widgetId)).toEqual([{ id }]);
+      } finally {
+        db.close();
+      }
 
-      await page.getByLabel("Image alternative text", { exact: true }).fill("Offer image");
       await page.getByLabel("Image link URL", { exact: true }).fill(offerUrl);
       await page.getByLabel("Open popup", { exact: true }).selectOption("click");
       await page.getByLabel("Host trigger selector", { exact: true }).fill("#offer-trigger");
@@ -251,6 +282,7 @@ test("image-only popup uploads automatically and preserves existing embed and se
             description: "Legacy description",
             ctaLabel: "Legacy button",
             showActionButton: "yes",
+            imageAlt: "Offer image",
           }), widgetId);
       } finally {
         db.close();
@@ -258,12 +290,23 @@ test("image-only popup uploads automatically and preserves existing embed and se
       await platform.restart(credentials);
       // A restrictive proxy may block media requests from an opaque iframe.
       const media = "**/widget-media/*";
-      await page.route(media, (route) => route.request().frame() === page.mainFrame() ? route.continue() : route.abort());
+      let releaseImage!: () => void;
+      const imageAllowed = new Promise<void>((resolve) => { releaseImage = resolve; });
+      await page.route(media, async (route) => {
+        if (route.request().frame() !== page.mainFrame()) return route.abort();
+        await imageAllowed;
+        await route.continue();
+      });
       try {
+        const imageRequested = page.waitForRequest(media);
         await page.goto(widgetPath + "?tab=preview");
         await page.getByRole("button", { name: "320px", exact: true }).click();
         const previewOpener = page.getByRole("button", { name: "Open popup", exact: true });
         await previewOpener.click();
+        const previewBackdrop = page.getByRole("dialog", { name: "Popup preview" });
+        await imageRequested;
+        await expect(previewBackdrop).toBeHidden();
+        releaseImage();
         const preview = page.frameLocator('iframe[title="Widget preview"]');
         const image = preview.getByRole("img", { name: "Offer image" });
         await expect(image).toBeVisible();
@@ -273,12 +316,12 @@ test("image-only popup uploads automatically and preserves existing embed and se
         const previewPanel = page.locator(".widget-host-preview-popup");
         await expect(previewPanel).toHaveCSS("width", "280px");
         await expect(previewPanel).toHaveCSS("transform", "matrix(0.8, 0, 0, 0.8, 0, 0)");
-        const previewBackdrop = page.getByRole("dialog", { name: "Popup preview" });
         await previewBackdrop.click({ position: { x: 4, y: 4 } });
         await expect(previewBackdrop).toBeHidden();
         await expect(previewOpener).toBeFocused();
       } finally {
-        await page.unroute(media);
+        releaseImage();
+        await page.unrouteAll({ behavior: "wait" });
       }
       expect(await recordCount(page, widgetId)).toBe(0);
     });
@@ -296,7 +339,36 @@ test("image-only popup uploads automatically and preserves existing embed and se
         expect((await ready).status()).toBe(200);
         await expect(dialog).toHaveCount(0);
         expect(await recordCount(page, widgetId)).toBe(index);
-        await opener.click();
+        if (index === 0) {
+          const media = "**/widget-media/*";
+          await host.route(media, (route) => route.abort(), { times: 1 });
+          const failedImage = host.waitForEvent("requestfailed", { predicate: (request) => request.url().includes("/widget-media/") });
+          await opener.click();
+          await failedImage;
+          await expect(frame).toHaveCount(0);
+          await expect(opener).toBeFocused();
+          expect(await recordCount(page, widgetId)).toBe(0);
+
+          let releaseImage!: () => void;
+          const imageAllowed = new Promise<void>((resolve) => { releaseImage = resolve; });
+          await host.route(media, async (route) => {
+            await imageAllowed;
+            await route.continue();
+          });
+          try {
+            const imageRequested = host.waitForRequest(media);
+            await opener.click();
+            await imageRequested;
+            await expect(dialog).toBeHidden();
+            await expect(frame).toBeHidden();
+            expect(await recordCount(page, widgetId)).toBe(0);
+          } finally {
+            releaseImage();
+            await host.unrouteAll({ behavior: "wait" });
+          }
+        } else {
+          await opener.click();
+        }
         await expect(dialog).toBeVisible();
         await expect(frame).toHaveCount(1);
         await expect(frame).toHaveCSS("width", width < 600 ? "280px" : "520px");

@@ -29,5 +29,10 @@ export const hostFrameScript = `(() => {
       send("close");
     }
   });
-  send("ready");
+  const image = document.querySelector("img[data-widget-ready-image]");
+  if (image) {
+    image.decode().then(() => send("ready"), () => send("unavailable"));
+  } else {
+    send("ready");
+  }
 })();`;

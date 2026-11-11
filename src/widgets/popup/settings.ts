@@ -27,7 +27,6 @@ const sizeFields = profileKeys.flatMap((key): WidgetConfigurationField[] => {
 });
 
 export const popupFields: readonly WidgetConfigurationField[] = [
-  { key: "imageAlt", label: "Image alternative text", description: "Describe information conveyed by the image, including any text visitors need to read.", control: "text", section: imageDetails },
   { key: "ctaUrl", label: "Image link URL", description: "Optional. Clicking the image opens this link in a new tab.", control: "url", section: imageDetails },
   { key: "trigger", label: "Open popup", control: "select", section: activation, options: [
     { value: "delay", label: "After a delay" },

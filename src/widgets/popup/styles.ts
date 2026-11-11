@@ -3,6 +3,9 @@ export const popupStyles = `
   html, body { overflow: hidden; overflow: clip; }
 
   .popup {
+    --popup-close-size: min(44px, 32vh);
+    --popup-close-gap: 4px;
+    --popup-close-space: calc(var(--popup-close-size) + var(--popup-close-gap) + 4px);
     display: grid;
     place-items: center;
     height: 100vh;
@@ -13,8 +16,9 @@ export const popupStyles = `
   .popup-artwork {
     position: relative;
     container-type: size;
-    width: min(100%, calc(100vh * var(--popup-image-ratio)));
-    width: min(100%, calc(100dvh * var(--popup-image-ratio)));
+    margin-top: var(--popup-close-space);
+    width: min(100%, calc((100vh - var(--popup-close-space)) * var(--popup-image-ratio)));
+    width: min(100%, calc((100dvh - var(--popup-close-space)) * var(--popup-image-ratio)));
     aspect-ratio: var(--popup-image-ratio);
   }
 
@@ -47,6 +51,13 @@ export const popupStyles = `
   }
 
   .popup-close svg { width: min(21px, 55%); height: auto; }
+
+  .popup-artwork > .popup-close {
+    top: auto;
+    bottom: calc(100% + var(--popup-close-gap));
+    width: var(--popup-close-size);
+    width: min(var(--popup-close-size), 90cqw, 90cqh);
+  }
 
   .popup-close:focus-visible, .popup-media-link:focus-visible {
     outline: 2px solid #fff;

@@ -11,12 +11,12 @@ function readDataUrl(image: Blob): Promise<string> {
   });
 }
 
-export function usePreviewImage(srcDoc: string, imageSrc: string | undefined, visible: boolean) {
+export function usePreviewImage(srcDoc: string, imageSrc: string | undefined, active: boolean) {
   const [loaded, setLoaded] = useState<{ src: string; dataUrl: string | null }>();
   const ready = loaded !== undefined && loaded.src === imageSrc;
 
   useEffect(() => {
-    if (!visible || !imageSrc || ready) return;
+    if (!active || !imageSrc || ready) return;
     const controller = new AbortController();
     const { signal } = controller;
 
@@ -41,9 +41,13 @@ export function usePreviewImage(srcDoc: string, imageSrc: string | undefined, vi
 
     void loadImage(imageSrc);
     return () => controller.abort();
-  }, [imageSrc, ready, visible]);
+  }, [active, imageSrc, ready]);
 
-  if (!imageSrc) return srcDoc;
-  if (!ready) return undefined;
-  return loaded.dataUrl ? srcDoc.replace(`src="${imageSrc}"`, `src="${loaded.dataUrl}"`) : srcDoc;
+  let readySrcDoc: string | undefined;
+  if (!imageSrc) {
+    readySrcDoc = srcDoc;
+  } else if (ready) {
+    readySrcDoc = loaded.dataUrl ? srcDoc.replace(`src="${imageSrc}"`, `src="${loaded.dataUrl}"`) : srcDoc;
+  }
+  return { readySrcDoc, resetImage: () => setLoaded(undefined) };
 }

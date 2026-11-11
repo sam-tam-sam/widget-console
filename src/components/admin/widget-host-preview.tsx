@@ -15,6 +15,9 @@ const profiles = [
 ] as const;
 
 const sandbox = "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox";
+const loadTimeoutMs = 10_000;
+
+type PreviewStatus = "closed" | "loading" | "open" | "unavailable";
 
 export function WidgetHostPreview({ srcDoc, imageSrc, configuration, channel }: {
   srcDoc: string;
@@ -24,8 +27,11 @@ export function WidgetHostPreview({ srcDoc, imageSrc, configuration, channel }: 
 }) {
   const [selected, select] = useState<(typeof profiles)[number]["key"]>("wide");
   const profile = profiles.find(({ key }) => key === selected) ?? profiles[4];
-  const [visible, setVisible] = useState(false);
-  const readySrcDoc = usePreviewImage(srcDoc, imageSrc, visible);
+  const [status, setStatus] = useState<PreviewStatus>("closed");
+  const loading = status === "loading";
+  const visible = status === "open";
+  const active = loading || visible;
+  const { readySrcDoc, resetImage } = usePreviewImage(srcDoc, imageSrc, active);
   const frame = useRef<HTMLIFrameElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
@@ -35,14 +41,24 @@ export function WidgetHostPreview({ srcDoc, imageSrc, configuration, channel }: 
     if (visible) {
       wasOpened.current = true;
       dialog.current?.focus({ preventScroll: true });
+      frame.current?.contentWindow?.postMessage({ widgetConsole: 1, channel, type: "opened" }, "*");
     } else if (wasOpened.current) {
+      wasOpened.current = false;
       trigger.current?.focus({ preventScroll: true });
     }
-  }, [visible]);
+  }, [channel, visible]);
+
+  useEffect(() => {
+    if (!loading) return;
+    const timeout = window.setTimeout(() => {
+      setStatus((current) => current === "loading" ? "unavailable" : current);
+    }, loadTimeoutMs);
+    return () => window.clearTimeout(timeout);
+  }, [loading]);
 
   useEffect(() => {
     const element = frame.current;
-    if (!visible || !element || !readySrcDoc) return;
+    if (!active || !element || !readySrcDoc) return;
 
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== "null" || event.source !== element.contentWindow) return;
@@ -50,16 +66,18 @@ export function WidgetHostPreview({ srcDoc, imageSrc, configuration, channel }: 
       if (!data || typeof data !== "object" || Object.keys(data).length !== 3 ||
           data.widgetConsole !== 1 || data.channel !== channel) return;
       if (data.type === "ready") {
-        element.contentWindow?.postMessage({ widgetConsole: 1, channel, type: "opened" }, "*");
+        setStatus((current) => current === "loading" ? "open" : current);
+      } else if (data.type === "unavailable") {
+        setStatus((current) => current === "loading" ? "unavailable" : current);
       } else if (data.type === "close") {
-        setVisible(false);
+        setStatus((current) => current === "open" ? "closed" : current);
       }
     };
     window.addEventListener("message", onMessage);
     // Set the content after subscribing, including when the preview is opened by a full page load.
     element.srcdoc = readySrcDoc;
     return () => window.removeEventListener("message", onMessage);
-  }, [channel, readySrcDoc, visible]);
+  }, [active, channel, readySrcDoc]);
 
   const size = configuration.sizes[profile.device];
   return (
@@ -73,19 +91,35 @@ export function WidgetHostPreview({ srcDoc, imageSrc, configuration, channel }: 
         className="widget-host-preview"
         style={{ width: profile.width ?? "100%" }}
         onKeyDown={(event) => {
-          if (visible && event.key === "Escape") {
+          if (active && event.key === "Escape") {
             event.preventDefault();
-            setVisible(false);
+            setStatus("closed");
           }
         }}
       >
         <div className="widget-host-preview-page" inert={visible}>
           <div className="widget-host-preview-header">Example header</div>
           <div className="widget-host-preview-main">
-            <Button ref={trigger} type="button" onClick={() => setVisible(true)}>Open popup</Button>
+            <Button
+              ref={trigger}
+              type="button"
+              aria-busy={loading || undefined}
+              aria-disabled={loading || undefined}
+              onClick={() => {
+                if (active) return;
+                if (status === "unavailable") resetImage();
+                setStatus("loading");
+              }}
+            >
+              Open popup
+            </Button>
+            <p className="widget-preview-message" role="status">
+              {loading && "Loading popup…"}
+              {status === "unavailable" && "The popup preview could not load. Try opening it again."}
+            </p>
           </div>
         </div>
-        {visible && (
+        {active && (
           <div
             ref={dialog}
             role="dialog"
@@ -93,14 +127,15 @@ export function WidgetHostPreview({ srcDoc, imageSrc, configuration, channel }: 
             tabIndex={-1}
             className="widget-host-preview-overlay"
             style={{ padding: profile.inset }}
-            aria-busy={!readySrcDoc}
+            data-loading={loading || undefined}
+            aria-hidden={loading || undefined}
+            inert={loading}
             onClick={(event) => {
-              if (event.target === event.currentTarget) setVisible(false);
+              if (event.target === event.currentTarget) setStatus("closed");
             }}
           >
             <div
               className="widget-host-preview-popup"
-              data-loading={!readySrcDoc || undefined}
               style={{ width: size.width, height: size.height, transform: `scale(${size.scale / 100})` }}
             >
               <iframe ref={frame} title="Widget preview" className="widget-host-preview-frame" sandbox={sandbox} />

@@ -52,7 +52,7 @@
       const data = event.data;
       if (!data || typeof data !== "object" || data.widgetConsole !== 1 || data.channel !== channel) return;
       const fields = Object.keys(data).length;
-      if ((data.type === "ready" || data.type === "close") && fields === 3) onMessage(data);
+      if (fields === 3 && (data.type === "ready" || data.type === "close" || data.type === "unavailable")) onMessage(data);
     }
     window.addEventListener("message", receive);
     const timeout = setTimeout(onTimeout, loadTimeout);
@@ -113,11 +113,11 @@
       dialog.animate?.([
         { backgroundColor: "transparent" }, { backgroundColor: dialog.style.backgroundColor },
       ], { duration: 180, easing: "ease-out" });
-      // Animate separately from the saved scale so the panel can resize while it opens.
+      // The individual scale multiplies the saved transform without overwriting it.
       frame.element.animate?.([
-        { opacity: 0, translate: "0 12px" },
-        { opacity: 1, translate: "0 0" },
-      ], { duration: 240, easing: "cubic-bezier(.2, .72, .26, 1)" });
+        { opacity: 0, scale: ".84" },
+        { opacity: 1, scale: "1" },
+      ], { duration: 280, easing: "cubic-bezier(.2, .72, .26, 1)" });
     }
 
     function release() {
@@ -147,6 +147,7 @@
       frame?.remove();
       frame = widgetFrame("Popup content", ({ type }) => {
         if (type === "close") close();
+        if (type === "unavailable" && !dialog.open && registry.activePopup === dialog) failed();
         if (type !== "ready" || dialog.open || registry.activePopup !== dialog) return;
         frame.ready();
         setSize();
